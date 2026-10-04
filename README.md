@@ -239,6 +239,18 @@ keep exported reports and signed reviews in your evidence repository.
 
 Opening `tenantwise.template.html` directly in a browser shows a small demo tenant — handy for trying changes to the page.
 
+### Screenshots 
+<img width="2160" height="1215" alt="01-map" src="https://github.com/user-attachments/assets/3c4b68ef-2743-433e-8ddf-5d83e7655147" />
+<img width="1350" height="1755" alt="10-management-summary" src="https://github.com/user-attachments/assets/42bb1aa4-d830-4118-be33-44480067a47f" />
+<img width="2160" height="1215" alt="09-dark" src="https://github.com/user-attachments/assets/77ae2b51-897e-45d4-acbf-766f26b6c992" />
+<img width="2160" height="1215" alt="08-manage-access" src="https://github.com/user-attachments/assets/0392db00-10a6-4997-b50c-2fa2ffb56a86" />
+<img width="2160" height="1215" alt="07-tenants" src="https://github.com/user-attachments/assets/55b8c5a6-9576-4a58-8aaf-dcfa2223d987" />
+<img width="2160" height="1215" alt="06-audit" src="https://github.com/user-attachments/assets/17db5e96-7263-4817-a048-b36e7d43e024" />
+<img width="2160" height="1215" alt="05-findings" src="https://github.com/user-attachments/assets/bf29b7e8-e9bb-4188-8bb9-cd06e22fab31" />
+<img width="2160" height="1215" alt="04-apps" src="https://github.com/user-attachments/assets/6424e383-e858-436f-a521-57c0b6e9dd63" />
+<img width="2160" height="1215" alt="03-access" src="https://github.com/user-attachments/assets/47d0df6a-cf0d-48a1-94c6-ea9761989413" />
+<img width="2160" height="1215" alt="02-network" src="https://github.com/user-attachments/assets/e433a6ed-6d18-4ad0-b50e-d98cdc5a670c" />
+
 ### Files
 | File | Purpose |
 | --- | --- |
