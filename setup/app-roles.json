@@ -1,0 +1,72 @@
+[
+  {
+    "allowedMemberTypes": [
+      "User"
+    ],
+    "description": "The map and network views.",
+    "displayName": "Map and network",
+    "id": "74ead22e-ecca-56cb-bae5-d164a416afe1",
+    "isEnabled": true,
+    "value": "TenantWise.Map"
+  },
+  {
+    "allowedMemberTypes": [
+      "User"
+    ],
+    "description": "The Access view: who can do what, hidden admins, offboarding checklists.",
+    "displayName": "Access and identities",
+    "id": "a6e52935-7fec-53cc-9dc2-bca39e066ee3",
+    "isEnabled": true,
+    "value": "TenantWise.Access"
+  },
+  {
+    "allowedMemberTypes": [
+      "User"
+    ],
+    "description": "The Apps view: app registrations, secrets, certificates, permissions.",
+    "displayName": "Apps and secrets",
+    "id": "19be756f-e8cd-54cf-9db8-49776f31451b",
+    "isEnabled": true,
+    "value": "TenantWise.Apps"
+  },
+  {
+    "allowedMemberTypes": [
+      "User"
+    ],
+    "description": "The Findings view and the management summary.",
+    "displayName": "Findings",
+    "id": "cb0c43ba-4e67-5904-81d8-c8c888cb3f5a",
+    "isEnabled": true,
+    "value": "TenantWise.Findings"
+  },
+  {
+    "allowedMemberTypes": [
+      "User"
+    ],
+    "description": "The Audit view (evidence, scope, access review decisions, activity log) and Changes.",
+    "displayName": "Audit and changes",
+    "id": "34788434-9167-5208-b9dd-998829cc8d2d",
+    "isEnabled": true,
+    "value": "TenantWise.Audit"
+  },
+  {
+    "allowedMemberTypes": [
+      "User"
+    ],
+    "description": "Sign off an access review and save the signed evidence.",
+    "displayName": "Sign off access reviews",
+    "id": "b740f296-ed90-54c4-84ba-b9c9a6308549",
+    "isEnabled": true,
+    "value": "TenantWise.SignOff"
+  },
+  {
+    "allowedMemberTypes": [
+      "User"
+    ],
+    "description": "Save reports, CSV exports, the audit report, offboarding checklists and the management summary.",
+    "displayName": "Export",
+    "id": "2c573786-9b5d-598d-b238-f0a45ef7d477",
+    "isEnabled": true,
+    "value": "TenantWise.Export"
+  }
+]
