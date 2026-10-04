@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath artifact configuration "app": TenantWise's own program files (uploaded by the workflow as one zip). -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="TenantWise.exe" product-name="TenantWise">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="TenantWise.Core.dll" product-name="TenantWise">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

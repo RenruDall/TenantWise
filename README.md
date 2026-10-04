@@ -12,6 +12,22 @@ Two read-only tools:
 > See [SECURITY.md](SECURITY.md) for the security model and how to report a vulnerability.
 >
 > Independent open-source project. Not affiliated with or endorsed by Microsoft.
+
+![TenantWise: the tenant from the root down, with who can do what on the selected subscription](docs/screenshots/01-map.png)
+
+| | |
+| --- | --- |
+| ![Access: everything one person can reach and why, with blast radius](docs/screenshots/03-access.png) **Access:** everything a person can reach, through which group, access package and PIM, and the blast radius | ![Apps: app registrations, secrets and certificates, permissions](docs/screenshots/04-apps.png) **Apps:** owners, secrets and certificates with expiry, admin rights and Microsoft Graph permissions |
+| ![Findings with score](docs/screenshots/05-findings.png) **Findings:** checked against Microsoft guidance, with a score and a one-page management summary | ![Audit: ISO 27001 and SOX evidence](docs/screenshots/06-audit.png) **Audit:** ISO/IEC 27001 and SOX evidence, access reviews with sign-off, tamper-evident log |
+| ![Network: hub and spoke topology](docs/screenshots/02-network.png) **Network:** VNets, peerings, subnets, firewalls, private endpoints and DNS links | ![Manage access: features per group and person](docs/screenshots/08-manage-access.png) **Manage access:** Global Administrators tick features per group or person |
+| ![Tenants: every tenant on this PC](docs/screenshots/07-tenants.png) **Tenants:** every tenant scanned on this PC, with score, trend and cross-tenant access | ![Dark mode](docs/screenshots/09-dark.png) **Dark mode**, presentation mode and settings for views, columns and thresholds |
+
+<details><summary>Management summary (one page for leadership)</summary>
+
+![Management summary](docs/screenshots/10-management-summary.png)
+</details>
+
+*Screenshots show a fictional tenant built for testing.*
 > "Azure" is a trademark of Microsoft Corporation.
 
 ## Workbook tabs
@@ -105,8 +121,9 @@ Install it, sign in with your work account (MFA as usual), click **Scan now**. I
 
 Needs Windows 10 or 11 (x64). Everything it needs is already part of Windows (.NET Framework 4.8 and the Edge
 WebView2 runtime; the installer points you to WebView2 in the rare case it's missing).
-A portable zip is also attached to each release. Neither is code-signed yet, so SmartScreen may warn on first
-launch (*More info → Run anyway*); `SHA256SUMS.txt` lists the hashes (`Get-FileHash <file>`).
+A portable zip is also attached to each release. Releases are code-signed through SignPath Foundation
+([code signing policy](CODE_SIGNING.md)); `SHA256SUMS.txt` lists the hashes (`Get-FileHash <file>`).
+Older unsigned builds (1.1.0 and earlier) are blocked by Windows Smart App Control and may trigger SmartScreen.
 
 ### ISO 27001 and SOX
 TenantWise produces evidence auditors can rely on. It is not certified and doesn't replace the auditor's own testing,
@@ -239,18 +256,6 @@ keep exported reports and signed reviews in your evidence repository.
 
 Opening `tenantwise.template.html` directly in a browser shows a small demo tenant — handy for trying changes to the page.
 
-### Screenshots 
-<img width="2160" height="1215" alt="01-map" src="https://github.com/user-attachments/assets/3c4b68ef-2743-433e-8ddf-5d83e7655147" />
-<img width="1350" height="1755" alt="10-management-summary" src="https://github.com/user-attachments/assets/42bb1aa4-d830-4118-be33-44480067a47f" />
-<img width="2160" height="1215" alt="09-dark" src="https://github.com/user-attachments/assets/77ae2b51-897e-45d4-acbf-766f26b6c992" />
-<img width="2160" height="1215" alt="08-manage-access" src="https://github.com/user-attachments/assets/0392db00-10a6-4997-b50c-2fa2ffb56a86" />
-<img width="2160" height="1215" alt="07-tenants" src="https://github.com/user-attachments/assets/55b8c5a6-9576-4a58-8aaf-dcfa2223d987" />
-<img width="2160" height="1215" alt="06-audit" src="https://github.com/user-attachments/assets/17db5e96-7263-4817-a048-b36e7d43e024" />
-<img width="2160" height="1215" alt="05-findings" src="https://github.com/user-attachments/assets/bf29b7e8-e9bb-4188-8bb9-cd06e22fab31" />
-<img width="2160" height="1215" alt="04-apps" src="https://github.com/user-attachments/assets/6424e383-e858-436f-a521-57c0b6e9dd63" />
-<img width="2160" height="1215" alt="03-access" src="https://github.com/user-attachments/assets/47d0df6a-cf0d-48a1-94c6-ea9761989413" />
-<img width="2160" height="1215" alt="02-network" src="https://github.com/user-attachments/assets/e433a6ed-6d18-4ad0-b50e-d98cdc5a670c" />
-
 ### Files
 | File | Purpose |
 | --- | --- |
@@ -262,6 +267,7 @@ Opening `tenantwise.template.html` directly in a browser shows a small demo tena
 | `installer/TenantWise.iss` | Installer (Inno Setup) |
 | `LICENSE`, `NOTICE` | Apache License 2.0 and the attribution notice to keep when redistributing |
 | `SECURITY.md` | Security model and how to report a vulnerability |
+| `docs/screenshots/` | The pictures in this README (a fictional test tenant) |
 | `setup/app-roles.json` | TenantWise's features as app roles, for an app registration's manifest |
 | `tests/` | Fake Azure + Entra tenant served over HTTP, and the round-trip test |
 | `.github/workflows/main.yml` | Tests, builds and publishes releases |
@@ -282,6 +288,20 @@ git push origin v1.0.0
 GitHub Actions runs the fake-tenant test, builds the app on Windows, checks the build, creates the installer and
 portable zip and publishes a release with `SHA256SUMS.txt`. *Run workflow* on the Actions tab builds a test copy
 without releasing.
+
+With code signing set up ([CODE_SIGNING.md](CODE_SIGNING.md)), the workflow sends the program files and then the
+installer to SignPath and waits until you approve each request there. Settings in the repository
+(*Settings → Secrets and variables → Actions*):
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `SIGNPATH_API_TOKEN` | API token of a SignPath CI user with submitter rights on the project |
+| Variable | `SIGNPATH_ORGANIZATION_ID` | SignPath organization ID |
+| Variable (optional) | `SIGNPATH_PROJECT_SLUG` | default `TenantWise` |
+| Variable (optional) | `SIGNPATH_SIGNING_POLICY_SLUG` | default `release-signing` |
+| Variable (optional) | `SIGNPATH_APP_CONFIGURATION`, `SIGNPATH_INSTALLER_CONFIGURATION` | defaults `app`, `installer` ([setup/signpath](setup/signpath)) |
+
+Without the secret and the organization ID, the workflow builds unsigned files and says so.
 
 Build locally (Windows, .NET 8 SDK):
 ```powershell
@@ -309,6 +329,11 @@ Every GitHub build runs this first.
 
 Issues and pull requests are welcome. Please test changes by pasting the JSON into a real workbook before opening a PR — the portal catches problems static checks miss.
 Keep queries within Resource Graph limits (max 3 `join`/`union` and 3 `mv-expand` per query; no `let`, `datatable`, `mv-apply`, `evaluate`).
+
+## Code signing
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+See the [code signing policy](CODE_SIGNING.md).
 
 ## Credits
 
