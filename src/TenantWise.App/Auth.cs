@@ -138,6 +138,10 @@ namespace TenantWise.App
                     return "This app (client) ID doesn't exist in that tenant. Each organization registers TenantWise in its own tenant: use the ID from yours.";
                 if (msg.Contains("AADSTS90002") || msg.Contains("AADSTS900023"))
                     return "That tenant wasn't found. Check the domain of your email, or enter the tenant's domain or ID under Advanced.";
+                if (msg.Contains("AADSTS500113") || msg.Contains("AADSTS50011"))
+                    return "The app registration is missing its redirect URIs. Entra admin center → App registrations → TenantWise → Authentication → "
+                         + "Add a platform → Mobile and desktop applications, add ms-appx-web://Microsoft.AAD.BrokerPlugin/<Application (client) ID> "
+                         + "and http://localhost, save, then sign in again.";
                 if (msg.Contains("AADSTS50194"))
                     return "This app registration only allows sign-ins from its own tenant. Check the tenant under Advanced.";
                 if (msg.Contains("AADSTS50076") || msg.Contains("AADSTS50079"))

@@ -420,7 +420,10 @@ namespace TenantWise.App
                 tenant = at > 0 ? email.Substring(at + 1).Trim() : "";
             }
             if (tenant.Length == 0) throw new InvalidOperationException("Enter your work email (or the tenant's domain under Advanced).");
-            _auth = new Auth(clientId, () => new WindowInteropHelper(this).Handle);
+            // The window handle is read once, on the UI thread: MSAL asks for it again later from background threads
+            // (Graph consent after sign-in, "Manage access"), and WPF objects may only be touched by their own thread.
+            var hwnd = Dispatcher.CheckAccess() ? new WindowInteropHelper(this).Handle : Dispatcher.Invoke(() => new WindowInteropHelper(this).Handle);
+            _auth = new Auth(clientId, () => hwnd);
             await _auth.SignInAsync(email, tenant, CancellationToken.None);
             SaveClientId(clientId);
             _tenantName = null;
