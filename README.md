@@ -13,24 +13,20 @@ Two read-only tools:
 >
 > Independent open-source project. Not affiliated with or endorsed by Microsoft.
 
+![TenantWise: the tenant from the root down, with who can do what on the selected subscription](docs/screenshots/01-map.png)
+
 | | |
 | --- | --- |
-**Access:** everything a person can reach, through which group, access package and PIM, and the blast radius | **Apps:** owners, secrets and certificates with expiry, admin rights and Microsoft Graph permissions |
-| **Findings:** checked against Microsoft guidance, with a score and a one-page management summary | **Audit:** ISO/IEC 27001 and SOX evidence, access reviews with sign-off, tamper-evident log |
-| **Network:** VNets, peerings, subnets, firewalls, private endpoints and DNS links | **Manage access:** Global Administrators tick features per group or person |
-| **Tenants:** every tenant scanned on this PC, with score, trend and cross-tenant access | **Dark mode**, presentation mode and settings for views, columns and thresholds |
+| ![Access: everything one person can reach and why, with blast radius](docs/screenshots/03-access.png) **Access:** everything a person can reach, through which group, access package and PIM, and the blast radius | ![Apps: app registrations, secrets and certificates, permissions](docs/screenshots/04-apps.png) **Apps:** owners, secrets and certificates with expiry, admin rights and Microsoft Graph permissions |
+| ![Findings with score](docs/screenshots/05-findings.png) **Findings:** checked against Microsoft guidance, with a score and a one-page management summary | ![Audit: ISO 27001 and SOX evidence](docs/screenshots/06-audit.png) **Audit:** ISO/IEC 27001 and SOX evidence, access reviews with sign-off, tamper-evident log |
+| ![Network: hub and spoke topology](docs/screenshots/02-network.png) **Network:** VNets, peerings, subnets, firewalls, private endpoints and DNS links | ![Manage access: features per group and person](docs/screenshots/08-manage-access.png) **Manage access:** Global Administrators tick features per group or person |
+| ![Tenants: every tenant on this PC](docs/screenshots/07-tenants.png) **Tenants:** every tenant scanned on this PC, with score, trend and cross-tenant access | ![Dark mode](docs/screenshots/09-dark.png) **Dark mode**, presentation mode and settings for views, columns and thresholds |
 
- <img width="2160" height="1215" alt="06-audit" src="https://github.com/user-attachments/assets/9422ce5a-8e00-49db-819a-4a7a90cade83" />
-<img width="2160" height="1215" alt="05-findings" src="https://github.com/user-attachments/assets/0bb4ddbb-4373-4324-a38a-a171a7aa1f67" />
-<img width="2160" height="1215" alt="04-apps" src="https://github.com/user-attachments/assets/8911c722-3eae-437d-998a-ab0977c5b9a6" />
-<img width="2160" height="1215" alt="03-access" src="https://github.com/user-attachments/assets/6f898965-de4b-428d-8585-6f803ae864a8" />
-<img width="2160" height="1215" alt="02-network" src="https://github.com/user-attachments/assets/d62aab6c-e51b-4d69-8230-f70725522514" />
-<img width="2160" height="1215" alt="01-map" src="https://github.com/user-attachments/assets/f9bbdaef-1a01-44c9-bf44-f710af49a3d6" />
-<img width="1350" height="1755" alt="10-management-summary" src="https://github.com/user-attachments/assets/0b1b6e37-0f96-4ed8-8d27-77434bfdedd7" />
-<img width="2160" height="1215" alt="09-dark" src="https://github.com/user-attachments/assets/5d0a759f-18d9-4248-bea7-469350cb2980" />
-<img width="2160" height="1215" alt="08-manage-access" src="https://github.com/user-attachments/assets/c039a7a7-518a-415f-8ba3-aecb08896000" />
-<img width="2160" height="1215" alt="07-tenants" src="https://github.com/user-attachments/assets/14037153-fcc0-4632-9500-4b69e07b06da" />
- 
+<details><summary>Management summary (one page for leadership)</summary>
+
+![Management summary](docs/screenshots/10-management-summary.png)
+</details>
+
 *Screenshots show a fictional tenant built for testing.*
 > "Azure" is a trademark of Microsoft Corporation.
 
@@ -232,7 +228,8 @@ minutes, done by a Global Administrator (or an Application Administrator togethe
    Supported accounts: **Accounts in this organizational directory only (single tenant)**.
    Leave the redirect URI empty and register.
 2. **Authentication → Add a platform → Mobile and desktop applications.** Add these redirect URIs:
-   `ms-appx-web://microsoft.aad.brokerplugin/<Application (client) ID>` (Windows sign-in) and `http://localhost`.
+   `ms-appx-web://Microsoft.AAD.BrokerPlugin/<Application (client) ID>` (Windows sign-in) and `http://localhost`.
+   Without them sign-in fails with *AADSTS500113: No reply address is registered for the application*.
 3. **API permissions → Add a permission**, all *Delegated*:
    *Azure Service Management → user_impersonation*;
    *Microsoft Graph → Directory.Read.All, RoleManagement.Read.Directory, Policy.Read.All*,
