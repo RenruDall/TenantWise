@@ -1,0 +1,162 @@
+name: Build TenantWise
+
+# Push a tag like v1.0.0 to test, build and publish TenantWise as a GitHub Release.
+# "Run workflow" on the Actions tab builds a test copy (download it from the run's artifacts).
+# No app ID is built in: each organization registers TenantWise in its own tenant and enters its app (client) ID once.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read          # SignPath reads the build's artifacts and details
+
+# Code signing (SignPath Foundation) runs only when the secret SIGNPATH_API_TOKEN and the repository variable
+# SIGNPATH_ORGANIZATION_ID exist. Without them the workflow builds unsigned files, as before. See CODE_SIGNING.md.
+env:
+  SIGNING: ${{ secrets.SIGNPATH_API_TOKEN != '' && vars.SIGNPATH_ORGANIZATION_ID != '' }}
+  SIGNPATH_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG || 'TenantWise' }}
+  SIGNPATH_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 300   # leaves time to approve the signing request in SignPath
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Test against a fake Azure + Entra tenant
+        shell: pwsh
+        run: |
+          python tests/fake_tenant.py tests/out
+          python tests/free_tenant.py tests/out
+          ./tests/Test-TenantWise.ps1
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0' }
+          "VERSION=$version" | Out-File $env:GITHUB_ENV -Append
+          dotnet build src/TenantWise.App/TenantWise.App.csproj -c Release "-p:Version=$version"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem src/TenantWise.App/bin/Release/net48 -Recurse -File | Select-Object -First 40 | Format-Table Length, FullName -AutoSize
+
+      - name: Check the app
+        shell: powershell   # Windows PowerShell (.NET Framework) loads the net48 app natively
+        run: |
+          $exe = (Resolve-Path src/TenantWise.App/bin/Release/net48/TenantWise.exe).Path
+          $asm = [System.Reflection.Assembly]::LoadFile($exe)
+          $names = $asm.GetManifestResourceNames()
+          foreach ($r in 'tenantwise.template.html', 'cytoscape.min.js', 'tenantwise-icons.js', 'tenantwise-font.css', 'tenantwise.ico') { if ($r -notin $names) { throw "Not embedded: $r" } }
+          $dir = Split-Path $exe
+          foreach ($f in 'TenantWise.Core.dll', 'Microsoft.Identity.Client.dll', 'Microsoft.Identity.Client.Broker.dll', 'Microsoft.Web.WebView2.Wpf.dll', 'System.Text.Json.dll') {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "Missing $f" }
+          }
+          if (-not (Get-ChildItem $dir -Recurse -Filter WebView2Loader.dll)) { throw 'Missing WebView2Loader.dll' }
+          if (-not (Get-ChildItem $dir -Recurse -Filter 'msalruntime*.dll')) { throw 'Missing msalruntime (Windows sign-in broker)' }
+          "Version: $((Get-Item $exe).VersionInfo.ProductVersion)"
+
+      # --- Sign TenantWise's own program files (TenantWise.exe, TenantWise.Core.dll) before packaging them
+      - name: Upload program files for signing
+        if: env.SIGNING == 'true'
+        id: unsigned-app
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-app
+          path: |
+            src/TenantWise.App/bin/Release/net48/TenantWise.exe
+            src/TenantWise.App/bin/Release/net48/TenantWise.Core.dll
+          if-no-files-found: error
+
+      - name: Sign program files (approve in SignPath)
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APP_CONFIGURATION || 'app' }}
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 14400
+          output-artifact-directory: signed/app
+
+      - name: Use the signed program files
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          foreach ($f in 'TenantWise.exe', 'TenantWise.Core.dll') {
+            $sig = Get-AuthenticodeSignature "signed/app/$f"
+            if ($sig.Status -ne 'Valid') { throw "$f is not validly signed: $($sig.Status) $($sig.StatusMessage)" }
+            Copy-Item "signed/app/$f" "src/TenantWise.App/bin/Release/net48/$f" -Force
+            "$f signed by $($sig.SignerCertificate.Subject)"
+          }
+
+      - name: Installer and portable zip
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" installer\TenantWise.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Compress-Archive -Path src/TenantWise.App/bin/Release/net48/*, LICENSE, NOTICE, THIRD-PARTY-NOTICES.txt -DestinationPath "dist/TenantWise-portable-$env:VERSION.zip"
+
+      # --- Sign the installer
+      - name: Upload installer for signing
+        if: env.SIGNING == 'true'
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: dist/TenantWise-Setup-*.exe
+          if-no-files-found: error
+
+      - name: Sign installer (approve in SignPath)
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_CONFIGURATION || 'installer' }}
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 14400
+          output-artifact-directory: signed/installer
+
+      - name: Use the signed installer
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem signed/installer -Filter 'TenantWise-Setup-*.exe') {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            if ($sig.Status -ne 'Valid') { throw "$($f.Name) is not validly signed: $($sig.Status) $($sig.StatusMessage)" }
+            Copy-Item $f.FullName "dist/$($f.Name)" -Force
+            "$($f.Name) signed by $($sig.SignerCertificate.Subject)"
+          }
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $sums = foreach ($f in Get-ChildItem dist -File) { (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $f.Name }
+          $sums | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          Get-Content dist/SHA256SUMS.txt
+          if ($env:SIGNING -ne 'true') { '::warning::Built without code signing (SIGNPATH_API_TOKEN or SIGNPATH_ORGANIZATION_ID not set). Windows Smart App Control will block these files.' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TenantWise
+          path: dist/
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
