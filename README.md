@@ -13,8 +13,6 @@ Two read-only tools:
 >
 > Independent open-source project. Not affiliated with or endorsed by Microsoft.
 
-![TenantWise: the tenant from the root down, with who can do what on the selected subscription](docs/screenshots/01-map.png)
-
 | | |
 | --- | --- |
 **Access:** everything a person can reach, through which group, access package and PIM, and the blast radius | **Apps:** owners, secrets and certificates with expiry, admin rights and Microsoft Graph permissions |
