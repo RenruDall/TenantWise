@@ -12,6 +12,15 @@ AppVerName=TenantWise {#AppVersion}
 AppPublisher=Michael Ladurner
 AppCopyright=© 2026 Michael Ladurner · Apache License 2.0
 AppPublisherURL=https://github.com/RenruDall/TenantWise
+AppSupportURL=https://github.com/RenruDall/TenantWise/issues
+AppUpdatesURL=https://github.com/RenruDall/TenantWise/releases
+; Product name and version inside the setup file (code signing needs them)
+VersionInfoVersion={#AppVersion}
+VersionInfoProductName=TenantWise
+VersionInfoProductVersion={#AppVersion}
+VersionInfoCompany=Michael Ladurner
+VersionInfoCopyright=© 2026 Michael Ladurner · Apache License 2.0
+VersionInfoDescription=TenantWise Setup
 DefaultDirName={localappdata}\Programs\TenantWise
 DefaultGroupName=TenantWise
 DisableProgramGroupPage=yes

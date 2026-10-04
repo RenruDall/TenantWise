@@ -90,7 +90,8 @@ TenantWise is maintained by one person in their own time, so these are goals, no
 - Releases are built from the tagged source by GitHub Actions; the build log is public on the release's workflow run.
 - Each release includes `SHA256SUMS.txt`. Check a file with PowerShell: `Get-FileHash .\TenantWise-Setup-<version>.exe`
   and compare the hash.
-- Code signing of the installer is planned. Until then Windows SmartScreen may warn on first launch.
+- Releases are code-signed through SignPath Foundation, after manual approval of each signing request
+  ([code signing policy](CODE_SIGNING.md)). Check the signature: `Get-AuthenticodeSignature <file>`.
 
 ## Dependencies
 
