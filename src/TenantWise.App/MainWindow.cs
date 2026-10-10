@@ -3,7 +3,8 @@
 // save a report, load an older scan to compare, save the audit report or CSV, audit scope, access reviews, the list of tenants
 // scanned on this PC, settings, sign out and switch tenant).
 // Everything stays on this PC under %LOCALAPPDATA%\TenantWise: scans, audit scope and reviews encrypted for the current
-// Windows user (DPAPI); every sign-in, scan, export and review sign-off recorded in a tamper-evident activity log.
+// Windows user (DPAPI). The page itself is served from memory, so no decrypted copy is written to disk. Every sign-in,
+// scan, export and review sign-off is recorded in the activity log, whose head is printed into every export.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,6 +13,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -34,13 +36,20 @@ namespace TenantWise.App
         private const int KeepScans = 30;
 
         private static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TenantWise");
-        private static readonly string ViewDir = Path.Combine(DataDir, "view");
+        private static readonly string LegacyViewDir = Path.Combine(DataDir, "view");             // versions before 1.3 wrote the page here
         private static readonly string SettingsFile = Path.Combine(DataDir, "settings.json");
         private static readonly string TenantsFile = Path.Combine(DataDir, "tenants.dat");        // encrypted: names, IDs, accounts, scan summaries
         private static readonly string PrefsFile = Path.Combine(DataDir, "preferences.dat");      // encrypted: views, columns, thresholds
         private const int KeepSummaries = 30;
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        private static readonly EvidenceLog Activity = new EvidenceLog(Path.Combine(DataDir, "activity.log"));
+        private static readonly string AnchorFile = Path.Combine(DataDir, "activity.anchor");     // encrypted: line count + last hash of the log
+        private static readonly string LogCopyFile = Path.Combine(DataDir, "logcopy.dat");        // encrypted: where the log is copied to, if anywhere
+        private static readonly EvidenceLog Activity = new EvidenceLog(Path.Combine(DataDir, "activity.log"),
+            () => File.Exists(AnchorFile) ? Protect.ReadText(AnchorFile) : null, a => Protect.WriteText(AnchorFile, a));
+
+        // Links TenantWise may open in the browser. Anything else (for example from a name in a scan) is ignored.
+        private static readonly string[] ExternalHosts = { "github.com", "portal.azure.com", "entra.microsoft.com", "login.microsoftonline.com",
+            "go.microsoft.com", "learn.microsoft.com", "aka.ms" };
         private static string Version => Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
         private readonly WebView2 _web = new WebView2();
@@ -49,7 +58,10 @@ namespace TenantWise.App
         private string _current;
         private CancellationTokenSource _scanCts;
         private JsonObject _prefill;
-        private AccessDecision _access = AppAccess.Decide(false, null);   // which TenantWise features this person may use                 // after "switch tenant": the tenant and account to fill in on the sign-in screen
+        private AccessDecision _access = AppAccess.Decide(false, null);   // which TenantWise features this person may use
+        private byte[] _page = new byte[0];                                // the current page, served from memory
+        private CoreWebView2Environment _env;
+        private readonly HashSet<string> _reviewEvidence = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // access-review files saved this session
 
         public MainWindow()
         {
@@ -59,7 +71,7 @@ namespace TenantWise.App
             Content = _web;
             using (var icon = Resource("tenantwise.ico")) Icon = BitmapFrame.Create(icon, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
             Loaded += async (s, e) => await InitAsync();
-            Closing += (s, e) => _scanCts?.Cancel();
+            Closing += (s, e) => { _scanCts?.Cancel(); _page = new byte[0]; };
         }
 
         // The app was called Rootline before 1.0: carry its local data (scans, reviews, activity log) over once.
@@ -77,11 +89,14 @@ namespace TenantWise.App
         private async Task InitAsync()
         {
             MoveLegacyData();
+            try { if (File.Exists(LogCopyFile)) Activity.CopyPath = Protect.ReadText(LogCopyFile); } catch (Exception) { }
+            try { if (Directory.Exists(LegacyViewDir)) Directory.Delete(LegacyViewDir, true); }   // a decrypted page left by an older version
+            catch (Exception) { }
             try
             {
-                Directory.CreateDirectory(ViewDir);
-                var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(DataDir, "WebView2"));
-                await _web.EnsureCoreWebView2Async(env);
+                Directory.CreateDirectory(DataDir);
+                _env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(DataDir, "WebView2"));
+                await _web.EnsureCoreWebView2Async(_env);
             }
             catch (WebView2RuntimeNotFoundException)
             {
@@ -93,20 +108,41 @@ namespace TenantWise.App
             var core = _web.CoreWebView2;
 #if !DEBUG
             core.Settings.AreDevToolsEnabled = false;
+            core.Settings.AreDefaultContextMenusEnabled = false;
+            core.Settings.AreBrowserAcceleratorKeysEnabled = false;
 #endif
             core.Settings.IsStatusBarEnabled = false;
-            core.SetVirtualHostNameToFolderMapping(Host, ViewDir, CoreWebView2HostResourceAccessKind.Deny);
+            try { core.Settings.IsGeneralAutofillEnabled = false; core.Settings.IsPasswordAutosaveEnabled = false; } catch (Exception) { /* older runtime */ }
+            // The page is answered from memory: nothing decrypted is written to disk, and nothing is cached.
+            core.AddWebResourceRequestedFilter("https://" + Host + "/*", CoreWebView2WebResourceContext.All);
+            core.WebResourceRequested += OnResource;
             core.WebMessageReceived += OnMessage;
             core.NewWindowRequested += (s, e) => { e.Handled = true; OpenExternal(e.Uri); };
             core.NavigationStarting += (s, e) =>
             {
                 if (!e.Uri.StartsWith("https://" + Host + "/", StringComparison.OrdinalIgnoreCase)) { e.Cancel = true; OpenExternal(e.Uri); }
             };
-            using (var lib = Resource("cytoscape.min.js"))
-            using (var f = File.Create(Path.Combine(ViewDir, "cytoscape.min.js"))) lib.CopyTo(f);
+            core.DownloadStarting += (s, e) => { e.Cancel = true; e.Handled = true; };          // files are saved only through the app
+            core.PermissionRequested += (s, e) => { e.State = CoreWebView2PermissionState.Deny; };
+            try { await core.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.DiskCache); } catch (Exception) { /* older runtime */ }
 
             Log("app.started", new JsonObject { ["version"] = Version });
             ShowView();
+        }
+
+        private void OnResource(object sender, CoreWebView2WebResourceRequestedEventArgs e)
+        {
+            var path = new Uri(e.Request.Uri).AbsolutePath;
+            byte[] body = null; string type = null;
+            if (path == "/index.html") { body = _page; type = "text/html; charset=utf-8"; }
+            else if (path == "/cytoscape.min.js")
+            {
+                using (var r = Resource("cytoscape.min.js")) using (var m = new MemoryStream()) { r.CopyTo(m); body = m.ToArray(); }
+                type = "text/javascript; charset=utf-8";
+            }
+            e.Response = body == null
+                ? _env.CreateWebResourceResponse(null, 404, "Not Found", "Cache-Control: no-store")
+                : _env.CreateWebResourceResponse(new MemoryStream(body), 200, "OK", "Content-Type: " + type + "\r\nCache-Control: no-store");
         }
 
         /// <summary>Records an action in the activity log (who, on which PC, which account and tenant). Never blocks the app.</summary>
@@ -126,7 +162,8 @@ namespace TenantWise.App
         private void ShowView()
         {
             string data = null;
-            if (_auth != null && _auth.SignedIn && _current != null) data = ReadSnapshot(_current);
+            var mayRead = _access.GlobalAdmin || _access.Features.Length > 0;                   // no feature: no scan data in the page
+            if (_auth != null && _auth.SignedIn && _current != null && mayRead) data = ReadSnapshot(_current);
             var scanHash = data != null ? EvidenceLog.Sha256Hex(data) : null;
             if (data == null)
             {
@@ -154,7 +191,7 @@ namespace TenantWise.App
                 ["current"] = _current,
                 ["scanSha256"] = scanHash,
                 ["auditSettings"] = ReadAudit("settings"),
-                ["review"] = _current != null ? ReadAudit("reviews\\" + _current) : null,
+                ["review"] = _current != null && mayRead ? ReadAudit("reviews\\" + _current) : null,
                 ["protectedAtRest"] = true,
                 ["tenants"] = TenantsForPage(),
                 ["prefs"] = ReadPrefs(),
@@ -162,7 +199,7 @@ namespace TenantWise.App
                 ["dataDir"] = DataDir,
                 ["access"] = _access.ToJson()
             };
-            File.WriteAllText(Path.Combine(ViewDir, "index.html"), Page(data, app.ToJsonString(), inlineLibrary: false), new UTF8Encoding(false));
+            _page = new UTF8Encoding(false).GetBytes(Page(data, app.ToJsonString(), inlineLibrary: false));
             _web.CoreWebView2.Navigate($"https://{Host}/index.html?v={DateTime.UtcNow.Ticks}");
         }
 
@@ -178,9 +215,39 @@ namespace TenantWise.App
             using (var r = new StreamReader(Resource("tenantwise-icons.js"), Encoding.UTF8)) icons = "<script>" + r.ReadToEnd().Replace("</script", "<\\/script") + "</script>";
             string font;
             using (var r = new StreamReader(Resource("tenantwise-font.css"), Encoding.UTF8)) font = "<style id=\"tw-font\">" + r.ReadToEnd() + "</style>";
-            return template.Replace(CdnTag, lib).Replace(IconsTag, icons).Replace(FontTag, font)
-                .Replace("/*__DATA__*/null", dataJson.Replace("</", "<\\/"))
-                .Replace("/*__APP__*/null", appJson.Replace("</", "<\\/"));
+
+            // Only TenantWise's own scripts may run: each gets this page's one-time nonce; no inline handlers, no CDN.
+            var nonceBytes = new byte[18];
+            using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(nonceBytes);
+            var nonce = Convert.ToBase64String(nonceBytes);
+            var scriptSrc = (inlineLibrary ? "" : "'self' ") + "'nonce-" + nonce + "'";
+            template = template.Replace("script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com", "script-src " + scriptSrc);
+            template = template.Replace(CdnTag, lib).Replace(IconsTag, icons).Replace(FontTag, font)
+                .Replace("<script>", "<script nonce=\"" + nonce + "\">").Replace("<script src=", "<script nonce=\"" + nonce + "\" src=");
+
+            // Scan data comes from the tenant: escaping "/" keeps "</script>" and the markers below from ever appearing in it
+            // (inside JSON strings "\/" is the same character).
+            return template
+                .Replace("/*__DATA__*/null", dataJson.Replace("/", "\\/"))
+                .Replace("/*__APP__*/null", appJson.Replace("/", "\\/"));
+        }
+
+        /// <summary>A line for the end of every exported report: where the activity log stood, so the copy can be checked later.</summary>
+        private string EvidenceFooter()
+        {
+            var (lines, hash, since) = Activity.Head();
+            return "<p class=\"meta\" style=\"margin-top:24px;font-size:11px;color:#555\">Evidence: saved with TenantWise " + Version +
+                " by " + Html(_auth?.Account) + " (Windows user " + Html(Environment.UserDomainName + "\\" + Environment.UserName) + " on " + Html(Environment.MachineName) +
+                "). Activity log at saving: entry " + lines + ", SHA-256 " + hash + (since > 0 ? ", anchored since entry " + since : ", not anchored") +
+                ". Times are UTC from this PC's clock.</p>";
+        }
+
+        private static string Html(string s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+
+        private static string WithFooter(string html, string footer)
+        {
+            var i = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+            return i < 0 ? html + footer : html.Substring(0, i) + footer + html.Substring(i);
         }
 
         // ------------------------------------------------------------------ requests from the page
@@ -202,6 +269,7 @@ namespace TenantWise.App
                     case "signIn":
                         await SignInAsync(Api.Str(args["email"]), Api.Str(args["tenant"]), Api.Str(args["clientId"]));
                         await DecideAccessAsync();
+                        OpenNewestScan();
                         Log("signed.in", new JsonObject { ["graph"] = _auth.GraphOk,
                             ["roles"] = new JsonArray(_access.Roles.Select(r => (JsonNode)JsonValue.Create(r)).ToArray()), ["globalAdmin"] = _access.GlobalAdmin });
                         _prefill = null;
@@ -232,9 +300,16 @@ namespace TenantWise.App
                         var changes = (args["changes"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().Select(c => new AppAccess.Change
                             { PrincipalId = Api.Str(c["principalId"]), Role = Api.Str(c["role"]), Grant = c["grant"]?.GetValue<bool>() == true }).ToList();
                         if (changes.Count > 500) throw new InvalidOperationException("Too many changes at once.");
-                        var (granted, removed) = await AppAccess.ApplyAsync(new Api(Http, _auth), _auth.ClientId, changes, CancellationToken.None);
-                        Log("access.changed", new JsonObject { ["granted"] = granted, ["removed"] = removed,
-                            ["changes"] = new JsonArray(changes.Select(c => (JsonNode)JsonValue.Create((c.Grant ? "+" : "-") + c.Role + " " + c.PrincipalId)).ToArray()) });
+                        var progress = new AppAccess.ApplyProgress();
+                        string failure = null;
+                        try { await AppAccess.ApplyAsync(new Api(Http, _auth), _auth.ClientId, changes, CancellationToken.None, progress); }
+                        catch (Exception ex) { failure = ex.Message; throw; }
+                        finally
+                        {
+                            if (progress.Done.Count > 0)
+                                Log("access.changed", new JsonObject { ["granted"] = progress.Granted, ["removed"] = progress.Removed, ["stoppedBy"] = failure,
+                                    ["changes"] = new JsonArray(progress.Done.Select(c => (JsonNode)JsonValue.Create(c)).ToArray()) });
+                        }
                         result = await AccessInfoAsync();
                         break;
                     }
@@ -244,7 +319,23 @@ namespace TenantWise.App
                         result = await AccessInfoAsync();
                         break;
                     }
-                    case "download": Need("export", "saving reports"); result = SaveReport(Api.Str(args["name"])); break;
+                    case "download":                                    // the whole scan as an offline page
+                        Need("export", "saving reports");
+                        if (!_access.GlobalAdmin && AppAccess.AllFeatures.Except(new[] { "signoff", "export" }).Any(f => !_access.Allows(f)))
+                            throw new InvalidOperationException("A saved report contains the whole scan, so it needs every view (map, access, apps, findings, audit). Export the parts you have instead.");
+                        if (!Snapshots().Contains(Api.Str(args["name"]))) throw new InvalidOperationException("That scan isn't available.");
+                        result = SaveReport(Api.Str(args["name"])); break;
+                    case "savePng":                                     // a picture of the map or network
+                        Need("export", "exporting");
+                        result = SavePng(Api.Str(args["name"]), Api.Str(args["dataUrl"])); break;
+                    case "open":                                        // an older scan from the picker
+                    {
+                        var name = Api.Str(args["name"]);
+                        if (_auth?.SignedIn != true || !Snapshots().Contains(name)) throw new InvalidOperationException("That scan isn't available.");
+                        _current = name;
+                        Log("scan.opened", new JsonObject { ["scan"] = name });
+                        reload = true; break;
+                    }
                     case "signOut":
                         Log("signed.out");
                         if (_auth != null) await _auth.SignOutAsync(); _current = null; _tenantName = null; _prefill = null;
@@ -265,14 +356,15 @@ namespace TenantWise.App
                         if (!Guid.TryParse(tid, out _)) throw new InvalidOperationException("Unknown tenant.");
                         if (_auth?.SignedIn == true && string.Equals(_auth.TenantId, tid, StringComparison.OrdinalIgnoreCase))
                             throw new InvalidOperationException("You're signed in to this tenant. Switch to another one first.");
+                        var deleted = args["deleteData"]?.GetValue<bool>() == true;
+                        if (deleted && MessageBox.Show(this, "Delete the scans and drafts of this tenant from this PC?\n\nSigned-off access reviews and their scans are kept: they are audit evidence.",
+                                "TenantWise", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+                        { result = new JsonObject { ["cancelled"] = true, ["tenants"] = TenantsForPage() }; break; }
                         var list = ReadTenants();
                         foreach (var x in list.OfType<JsonObject>().Where(x => Api.Str(x["tenantId"]) == tid).ToList()) list.Remove(x);
                         WriteTenants(list);
-                        var deleted = args["deleteData"]?.GetValue<bool>() == true;
-                        if (deleted)
-                            foreach (var dir in new[] { Path.Combine(DataDir, "snapshots", tid), Path.Combine(DataDir, "audit", tid) })
-                                if (Directory.Exists(dir)) Directory.Delete(dir, true);
-                        Log("tenant.removed", new JsonObject { ["removedTenant"] = tid, ["deletedData"] = deleted });
+                        var kept = deleted ? DeleteTenantData(tid) : 0;
+                        Log("tenant.removed", new JsonObject { ["removedTenant"] = tid, ["deletedData"] = deleted, ["signedReviewsKept"] = kept });
                         result = new JsonObject { ["tenants"] = TenantsForPage() };
                         break;
                     }
@@ -285,7 +377,7 @@ namespace TenantWise.App
                             entry[k] = int.TryParse(Api.Str(args[k]), out var n) ? Math.Max(0, Math.Min(n, 100000)) : 0;
                         var grade = Api.Str(args["grade"]) ?? "";
                         entry["grade"] = grade.Length == 1 && "ABCDE".Contains(grade) ? grade : "";
-                        entry["reviewSigned"] = Api.Str(args["reviewSigned"]);
+                        entry["reviewSigned"] = Api.Str(ReadAudit("reviews\\" + scan)?["signedOff"]?["time"]);   // from the saved review, not the page
                         UpsertTenant(_auth.TenantId, t =>
                         {
                             var h = t["history"] as JsonArray ?? new JsonArray();
@@ -311,42 +403,110 @@ namespace TenantWise.App
                     case "openExternal": OpenExternal(Api.Str(args["url"])); break;
                     case "load":                                        // an older scan, for "Changes"
                         Need("audit", "comparing scans");
-                        var older = ReadSnapshot(Api.Str(args["name"])) ?? throw new InvalidOperationException("That scan no longer exists.");
+                        var olderName = Api.Str(args["name"]);
+                        var older = (Snapshots().Contains(olderName) ? ReadSnapshot(olderName) : null) ?? throw new InvalidOperationException("That scan no longer exists.");
                         Log("scan.compared", new JsonObject { ["scan"] = _current, ["with"] = Api.Str(args["name"]), ["withSha256"] = EvidenceLog.Sha256Hex(older) });
                         result = JsonNode.Parse(older);
                         break;
                     case "saveText":
                     {
                         var kind = Api.Str(args["kind"]) ?? "";
-                        if (kind.StartsWith("access-review", StringComparison.Ordinal)) Need("signoff", "signing off access reviews");
+                        var reviewFile = kind == "access-review" || kind == "access-review-csv";
+                        if (reviewFile) { Need("audit", "access reviews"); Need("signoff", "signing off access reviews"); }
                         else Need("export", "exporting");
-                        result = SaveText(Api.Str(args["name"]), Api.Str(args["text"]), kind);
+                        var saved = SaveText(Api.Str(args["name"]), Api.Str(args["text"]), reviewFile ? kind : "export");
+                        if (reviewFile && saved?["sha256"] != null && kind == "access-review") _reviewEvidence.Add(Api.Str(saved["sha256"]));
+                        result = saved;
                         break;
                     }
                     case "saveSettings":                                 // audit scope: in-scope and production subscriptions
+                        Need("audit", "the audit scope");
+                        if ((args["settings"]?.ToJsonString() ?? "").Length > 262144) throw new InvalidOperationException("Audit scope is too large.");
                         WriteAudit("settings", args["settings"] as JsonObject ?? new JsonObject());
                         Log("scope.changed", new JsonObject { ["inScope"] = (args["settings"]?["inScope"] as JsonArray)?.Count ?? 0,
                             ["production"] = (args["settings"]?["production"] as JsonArray)?.Count ?? 0 });
                         break;
                     case "saveReview":                                   // access review draft or sign-off, kept with its scan
+                    {
                         if (_current == null) throw new InvalidOperationException("Open a scan first.");
                         var review = args["review"] as JsonObject ?? throw new InvalidOperationException("No review to save.");
                         Need("audit", "access reviews");
-                        if (review["signedOff"] != null) Need("signoff", "signing off access reviews");
+                        if (review.ToJsonString().Length > 4 * 1024 * 1024) throw new InvalidOperationException("The review is too large.");
+                        var existing = ReadAudit("reviews\\" + _current);
+                        var existingSign = existing?["signedOff"] as JsonObject;
+                        var incomingSign = review["signedOff"] as JsonObject;
+                        if (existingSign != null)
+                        {
+                            if (incomingSign != null && Api.Str(incomingSign["evidenceSha256"]) == Api.Str(existingSign["evidenceSha256"]))
+                                break;                                   // the signed review again: it stays as it was signed
+                            if (incomingSign != null) throw new InvalidOperationException("This review is already signed off. Start a new review to change decisions.");
+                            // a new review: the signed one is kept as a version of its own, never overwritten
+                            var version = _current + "~" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+                            WriteAudit("reviews\\" + version, existing);
+                            Log("review.reopened", new JsonObject { ["scan"] = _current, ["signedReviewKeptAs"] = version, ["evidenceSha256"] = Api.Str(existingSign["evidenceSha256"]) });
+                        }
+                        if (incomingSign != null)
+                        {
+                            Need("signoff", "signing off access reviews");
+                            var evidence = Api.Str(incomingSign["evidenceSha256"]);
+                            if (evidence == null || !_reviewEvidence.Contains(evidence))
+                                throw new InvalidOperationException("Save the review evidence with TenantWise before signing off.");
+                            var named = (Api.Str(incomingSign["reviewer"]) ?? "").Trim();
+                            review["signedOff"] = new JsonObject
+                            {
+                                ["reviewer"] = _auth.Account,                // the signed-in account, as Microsoft confirmed it
+                                ["onBehalfOf"] = named.Length > 0 && !string.Equals(named, _auth.Account, StringComparison.OrdinalIgnoreCase) ? named : null,
+                                ["time"] = DateTime.UtcNow.ToString("o"),
+                                ["summary"] = Api.Str(incomingSign["summary"]),
+                                ["evidenceSha256"] = evidence,
+                                ["selfReviewed"] = int.TryParse(Api.Str(incomingSign["selfReviewed"]), out var own) ? own : 0,
+                                ["populationSha256"] = Api.Str(incomingSign["populationSha256"]),
+                                ["scanSha256"] = EvidenceLog.Sha256Hex(ReadSnapshot(_current) ?? "")
+                            };
+                        }
                         WriteAudit("reviews\\" + _current, review);
                         if (review["signedOff"] is JsonObject so)
-                            Log("review.signed", new JsonObject { ["scan"] = _current, ["reviewer"] = Api.Str(so["reviewer"]),
-                                ["decisions"] = Api.Str(so["summary"]), ["evidenceSha256"] = Api.Str(so["evidenceSha256"]) });
+                        {
+                            Log("review.signed", new JsonObject { ["scan"] = _current, ["reviewer"] = Api.Str(so["reviewer"]), ["onBehalfOf"] = Api.Str(so["onBehalfOf"]),
+                                ["decisions"] = Api.Str(so["summary"]), ["evidenceSha256"] = Api.Str(so["evidenceSha256"]), ["scanSha256"] = Api.Str(so["scanSha256"]) });
+                            result = new JsonObject { ["signedOff"] = so.DeepClone() };
+                        }
                         break;
+                    }
                     case "activity":
                         Need("audit", "the activity log");
                         var v = Activity.Verify();
+                        var copy = Activity.CheckCopy();
                         result = new JsonObject
                         {
-                            ["verified"] = v.Ok, ["lines"] = v.Lines, ["problem"] = v.Problem, ["path"] = Path.Combine(DataDir, "activity.log"),
+                            ["verified"] = v.Ok && copy.Ok, ["lines"] = v.Lines, ["problem"] = v.Problem ?? (copy.Ok ? null : copy.Note), ["anchoredSince"] = v.AnchoredSince,
+                            ["copyPath"] = Activity.CopyPath, ["copyNote"] = copy.Note, ["path"] = Path.Combine(DataDir, "activity.log"),
                             ["entries"] = new JsonArray(Activity.Recent(300, _auth?.TenantId).Cast<JsonNode>().ToArray())
                         };
                         break;
+                    case "logCopy":                                     // copy every log entry to a folder of your choice, or stop
+                    {
+                        Need("audit", "the activity log");
+                        if (Api.Str(args["action"]) == "stop")
+                        {
+                            Log("log.copy.stopped", new JsonObject { ["copy"] = Activity.CopyPath });
+                            Activity.CopyPath = null;
+                            if (File.Exists(LogCopyFile)) File.Delete(LogCopyFile);
+                        }
+                        else
+                        {
+                            string folder = null;
+                            using (var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "Folder for a copy of TenantWise's activity log (for example a network share your SIEM collects)", ShowNewFolderButton = true })
+                                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) folder = dlg.SelectedPath;
+                            if (folder == null) { result = new JsonObject { ["cancelled"] = true }; break; }
+                            var file = Path.Combine(folder, "TenantWise-activity-" + Environment.MachineName + "-" + Environment.UserName + ".log");
+                            Activity.StartCopy(file);
+                            Protect.WriteText(LogCopyFile, file);
+                            Log("log.copy.started", new JsonObject { ["copy"] = file });
+                        }
+                        result = new JsonObject { ["copyPath"] = Activity.CopyPath };
+                        break;
+                    }
                     default: throw new InvalidOperationException("Unknown request " + cmd);
                 }
                 Reply(id, true, result, null);
@@ -427,6 +587,12 @@ namespace TenantWise.App
             await _auth.SignInAsync(email, tenant, CancellationToken.None);
             SaveClientId(clientId);
             _tenantName = null;
+            _current = null;
+        }
+
+        /// <summary>After sign-in: the newest scan this person may open (their own; every scan for a Global Administrator).</summary>
+        private void OpenNewestScan()
+        {
             _current = Snapshots().FirstOrDefault();
             if (_current != null)
                 try { _tenantName = Api.Str(JsonNode.Parse(ReadSnapshot(_current))?["meta"]?["tenantName"]); } catch (Exception) { }
@@ -446,14 +612,14 @@ namespace TenantWise.App
             var dir = SnapshotDir();
             var json = data.ToJsonString();
             Protect.WriteText(Path.Combine(dir, name + ".scan"), json);
+            Protect.WriteText(Path.Combine(dir, name + ".owner"), (_auth.Account ?? "").ToLowerInvariant());   // whose scan it is
             var pv = data["meta"]?["provenance"];
             Log("scan.completed", new JsonObject { ["scan"] = name, ["sha256"] = EvidenceLog.Sha256Hex(json),
                 ["complete"] = pv?["complete"]?.DeepClone(), ["notes"] = (data["meta"]?["warnings"] as JsonArray)?.Count ?? 0, ["counts"] = pv?["counts"]?.DeepClone() });
             // keep the newest scans, but never one whose access review was signed off: that is audit evidence
-            var signed = new HashSet<string>(Directory.Exists(AuditDir("reviews")) ? Directory.GetFiles(AuditDir("reviews"), "*.dat")
-                .Select(Path.GetFileNameWithoutExtension).Where(n => ReadAudit("reviews\\" + n)?["signedOff"] != null) : Enumerable.Empty<string>());
-            foreach (var old in Snapshots().Skip(KeepScans).Where(n => !signed.Contains(n)))
-                foreach (var ext in new[] { ".scan", ".json" }) { var f = Path.Combine(dir, old + ext); if (File.Exists(f)) File.Delete(f); }
+            var signed = SignedScans(AuditDir("reviews"));
+            foreach (var old in AllSnapshots().Skip(KeepScans).Where(n => !signed.Contains(n)))
+                foreach (var ext in new[] { ".scan", ".json", ".owner" }) { var f = Path.Combine(dir, old + ext); if (File.Exists(f)) File.Delete(f); }
             _current = name;
             _tenantName = Api.Str(data["meta"]?["tenantName"]) ?? _tenantName;
             var domain = Api.Str(data["meta"]?["tenantDomain"]);
@@ -477,7 +643,15 @@ namespace TenantWise.App
                 DefaultExt = ".html"
             };
             if (dlg.ShowDialog(this) != true) return new JsonObject { ["cancelled"] = true };
-            var bytes = new UTF8Encoding(false).GetBytes(Page(data, "null", inlineLibrary: true));
+            // The offline page keeps this person's features and presentation mode (masked names), and says where the log stood.
+            var reportApp = new JsonObject
+            {
+                ["report"] = true, ["version"] = Version, ["account"] = _auth?.Account, ["scanSha256"] = EvidenceLog.Sha256Hex(data),
+                ["prefs"] = ReadPrefs(), ["access"] = _access.ToJson(), ["auditSettings"] = ReadAudit("settings"), ["review"] = ReadAudit("reviews\\" + name)
+            };
+            var features = (reportApp["access"]["features"] as JsonArray)?.Select(Api.Str).Where(f => f != "admin").ToArray() ?? new string[0];
+            reportApp["access"]["features"] = new JsonArray(features.Select(f => (JsonNode)JsonValue.Create(f)).ToArray());   // "who uses TenantWise" isn't in a report
+            var bytes = new UTF8Encoding(false).GetBytes(WithFooter(Page(data, reportApp.ToJsonString(), inlineLibrary: true), EvidenceFooter()));
             File.WriteAllBytes(dlg.FileName, bytes);
             var sha = EvidenceLog.Sha256Hex(bytes);
             Log("report.saved", new JsonObject { ["scan"] = name, ["file"] = dlg.FileName, ["sha256"] = sha });
@@ -498,6 +672,7 @@ namespace TenantWise.App
                 DefaultExt = ext
             };
             if (dlg.ShowDialog(this) != true) return new JsonObject { ["cancelled"] = true };
+            if (ext == ".html") text = WithFooter(text, EvidenceFooter());              // where the activity log stood
             var enc = new UTF8Encoding(ext == ".csv");                                  // BOM so Excel reads UTF-8
             var bytes = enc.GetPreamble().Concat(enc.GetBytes(text)).ToArray();
             File.WriteAllBytes(dlg.FileName, bytes);
@@ -506,15 +681,96 @@ namespace TenantWise.App
             return new JsonObject { ["path"] = dlg.FileName, ["sha256"] = sha };
         }
 
+        /// <summary>Saves a picture the page drew (map or network) where the user chooses.</summary>
+        private JsonNode SavePng(string name, string dataUrl)
+        {
+            const string prefix = "data:image/png;base64,";
+            if (dataUrl == null || !dataUrl.StartsWith(prefix, StringComparison.Ordinal)) throw new InvalidOperationException("Not a picture.");
+            var bytes = Convert.FromBase64String(dataUrl.Substring(prefix.Length));
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Save a picture", FileName = Path.GetFileName(name ?? "tenantwise.png"), Filter = "PNG picture (*.png)|*.png", DefaultExt = ".png"
+            };
+            if (dlg.ShowDialog(this) != true) return new JsonObject { ["cancelled"] = true };
+            File.WriteAllBytes(dlg.FileName, bytes);
+            var sha = EvidenceLog.Sha256Hex(bytes);
+            Log("export.saved", new JsonObject { ["kind"] = "picture", ["scan"] = _current, ["file"] = dlg.FileName, ["sha256"] = sha });
+            return new JsonObject { ["path"] = dlg.FileName, ["sha256"] = sha };
+        }
+
+        /// <summary>Scans whose access review was signed off (also earlier signed versions), from a tenant's reviews folder.</summary>
+        private static HashSet<string> SignedScans(string reviewsDir)
+        {
+            var signed = new HashSet<string>(StringComparer.Ordinal);
+            if (!Directory.Exists(reviewsDir)) return signed;
+            foreach (var f in Directory.GetFiles(reviewsDir, "*.dat"))
+            {
+                try
+                {
+                    if ((JsonNode.Parse(Protect.ReadText(f)) as JsonObject)?["signedOff"] != null)
+                        signed.Add(Path.GetFileNameWithoutExtension(f).Split('~')[0]);
+                }
+                catch (Exception) { /* unreadable: treat as unsigned */ }
+            }
+            return signed;
+        }
+
+        /// <summary>Deletes a tenant's scans and drafts from this PC, keeping signed-off reviews and their scans. Returns how many were kept.</summary>
+        private static int DeleteTenantData(string tid)
+        {
+            var reviews = Path.Combine(DataDir, "audit", tid, "reviews");
+            var signed = SignedScans(reviews);
+            var scans = Path.Combine(DataDir, "snapshots", tid);
+            if (Directory.Exists(scans))
+                foreach (var f in Directory.GetFiles(scans))
+                    if (!signed.Contains(Path.GetFileNameWithoutExtension(f))) File.Delete(f);
+            var audit = Path.Combine(DataDir, "audit", tid);
+            if (Directory.Exists(audit))
+                foreach (var f in Directory.GetFiles(audit, "*", SearchOption.AllDirectories))
+                {
+                    var keep = false;
+                    if (string.Equals(Path.GetDirectoryName(f), reviews, StringComparison.OrdinalIgnoreCase))
+                        try { keep = (JsonNode.Parse(Protect.ReadText(f)) as JsonObject)?["signedOff"] != null; } catch (Exception) { keep = true; }
+                    if (!keep) File.Delete(f);
+                }
+            return signed.Count;
+        }
+
         // ------------------------------------------------------------------ storage
         private string SnapshotDir() => Path.Combine(DataDir, "snapshots", (_auth?.TenantId ?? "unknown").ToLowerInvariant());
 
-        private List<string> Snapshots()
+        /// <summary>Every scan of the signed-in tenant on this PC, newest first.</summary>
+        private List<string> AllSnapshots()
         {
             if (_auth == null || !_auth.SignedIn || !Directory.Exists(SnapshotDir())) return new List<string>();
             return Directory.GetFiles(SnapshotDir()).Where(f => f.EndsWith(".scan", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
                 .Select(Path.GetFileNameWithoutExtension).Where(IsSnapshotName).Distinct()
                 .OrderByDescending(n => n, StringComparer.Ordinal).ToList();
+        }
+
+        /// <summary>The scans this person may open: their own; every scan for a Global Administrator. A scan shows what its
+        /// account could read, so someone else's scan could show more than this person may see.</summary>
+        private List<string> Snapshots()
+        {
+            var all = AllSnapshots();
+            if (_access.GlobalAdmin) return all;
+            var me = (_auth?.Account ?? "").ToLowerInvariant();
+            return all.Where(n => OwnerOf(n) == me).ToList();
+        }
+
+        /// <summary>The account that made a scan. Scans from before 1.3 have no owner file: it's taken from the scan once.</summary>
+        private string OwnerOf(string name)
+        {
+            var f = Path.Combine(SnapshotDir(), name + ".owner");
+            try
+            {
+                if (File.Exists(f)) return Protect.ReadText(f);
+                var data = ReadSnapshot(name);
+                var owner = (Api.Str(JsonNode.Parse(data ?? "{}")?["meta"]?["provenance"]?["account"]) ?? "").ToLowerInvariant();
+                if (owner.Length > 0) Protect.WriteText(f, owner);
+                return owner;
+            }
+            catch (Exception) { return ""; }
         }
 
         // per-tenant audit scope and access reviews, encrypted like the scans
@@ -585,8 +841,11 @@ namespace TenantWise.App
             if (!IsSnapshotName(name)) return null;
             var enc = Path.Combine(SnapshotDir(), name + ".scan");
             if (File.Exists(enc)) return Protect.ReadText(enc);
-            var plain = Path.Combine(SnapshotDir(), name + ".json");           // scans from before encryption
-            return File.Exists(plain) ? File.ReadAllText(plain, Encoding.UTF8) : null;
+            var plain = Path.Combine(SnapshotDir(), name + ".json");           // scans from before encryption: encrypt them now
+            if (!File.Exists(plain)) return null;
+            var text = File.ReadAllText(plain, Encoding.UTF8);
+            try { Protect.WriteText(enc, text); File.Delete(plain); } catch (Exception) { /* stays readable; tried again next time */ }
+            return text;
         }
 
         private static string Label(string name) =>
@@ -618,8 +877,9 @@ namespace TenantWise.App
 
         private static void OpenExternal(string url)
         {
-            if (url == null || !(url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))) return;
-            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception) { }
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps) return;
+            if (!ExternalHosts.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase) || u.Host.EndsWith("." + h, StringComparison.OrdinalIgnoreCase))) return;
+            try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); } catch (Exception) { }
         }
     }
 }

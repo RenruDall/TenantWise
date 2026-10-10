@@ -18,7 +18,7 @@ Two read-only tools:
 | | |
 | --- | --- |
 | ![Access: everything one person can reach and why, with blast radius](docs/screenshots/03-access.png) **Access:** everything a person can reach, through which group, access package and PIM, and the blast radius | ![Apps: app registrations, secrets and certificates, permissions](docs/screenshots/04-apps.png) **Apps:** owners, secrets and certificates with expiry, admin rights and Microsoft Graph permissions |
-| ![Findings with score](docs/screenshots/05-findings.png) **Findings:** checked against Microsoft guidance, with a score and a one-page management summary | ![Audit: ISO 27001 and SOX evidence](docs/screenshots/06-audit.png) **Audit:** ISO/IEC 27001 and SOX evidence, access reviews with sign-off, tamper-evident log |
+| ![Findings with score](docs/screenshots/05-findings.png) **Findings:** checked against Microsoft guidance, with a score and a one-page management summary | ![Audit: ISO 27001 and SOX evidence](docs/screenshots/06-audit.png) **Audit:** ISO/IEC 27001 and SOX evidence, access reviews with sign-off, chained activity log |
 | ![Network: hub and spoke topology](docs/screenshots/02-network.png) **Network:** VNets, peerings, subnets, firewalls, private endpoints and DNS links | ![Manage access: features per group and person](docs/screenshots/08-manage-access.png) **Manage access:** Global Administrators tick features per group or person |
 | ![Tenants: every tenant on this PC](docs/screenshots/07-tenants.png) **Tenants:** every tenant scanned on this PC, with score, trend and cross-tenant access | ![Dark mode](docs/screenshots/09-dark.png) **Dark mode**, presentation mode and settings for views, columns and thresholds |
 
@@ -106,7 +106,7 @@ Install it, sign in with your work account (MFA as usual), click **Scan now**. I
   the trend since the previous scan, audit readiness and the access review status.
   Each finding names the ISO/IEC 27001:2022 Annex A control and the SOX IT general control area it belongs to.
 - **Audit** — evidence for ISO 27001 and SOX audits: how the data was produced, a control summary, the audit scope,
-  the **periodic access review** with sign-off, and the tamper-evident activity log ([details](#iso-27001-and-sox)).
+  the **periodic access review** with sign-off, and the chained activity log ([details](#iso-27001-and-sox)).
 - **Changes** — compares any two scans: who gained or lost access (roles, group membership, access packages),
   moved subscriptions, new or removed resources and connections, policy and enforcement changes.
 
@@ -121,9 +121,9 @@ Install it, sign in with your work account (MFA as usual), click **Scan now**. I
 
 Needs Windows 10 or 11 (x64). Everything it needs is already part of Windows (.NET Framework 4.8 and the Edge
 WebView2 runtime; the installer points you to WebView2 in the rare case it's missing).
-A portable zip is also attached to each release. Releases are code-signed through SignPath Foundation
+A portable zip is also attached to each release. Code signing through SignPath Foundation is being set up
 ([code signing policy](CODE_SIGNING.md)); `SHA256SUMS.txt` lists the hashes (`Get-FileHash <file>`).
-Older unsigned builds (1.1.0 and earlier) are blocked by Windows Smart App Control and may trigger SmartScreen.
+Until signing is live, Windows Smart App Control blocks the installer and SmartScreen may warn on first launch.
 
 ### ISO 27001 and SOX
 TenantWise produces evidence auditors can rely on. It is not certified and doesn't replace the auditor's own testing,
@@ -148,21 +148,36 @@ but it covers what they ask for in access and cloud-governance controls:
 - **Read-only.** TenantWise only reads, with the signed-in person's own rights. The one exception: Global Administrators can save who may use TenantWise.
 - **Provenance.** Every scan records who ran it, when, with which version, which APIs it used, how many requests it
   made and what it could not read (completeness). The audit report starts with this.
-- **Fingerprints.** Each scan and each exported file (audit report, access CSV, signed access review) gets a SHA-256 hash.
-- **Tamper-evident activity log.** Sign-ins, scans, comparisons, exports and review sign-offs are written to
-  `%LOCALAPPDATA%\TenantWise\activity.log`, each entry chained to the previous one by SHA-256. The *Audit* view verifies
-  the chain; any edited, removed or reordered entry is reported. Auditors check an exported file with `Get-FileHash`
-  against the log entry.
-- **Encrypted at rest.** Scans, audit scope and reviews are encrypted with Windows DPAPI for the signed-in Windows user;
-  nothing is sent anywhere. Scans with a signed-off access review are never removed automatically.
+- **Fingerprints.** Each scan and each exported file (audit report, access CSV, signed access review, picture) gets a SHA-256 hash.
+- **Chained activity log.** Sign-ins, scans, comparisons, exports, access changes and review sign-offs are written to
+  `%LOCALAPPDATA%\TenantWise\activity.log`, each entry chained to the previous one by SHA-256. Its latest position is kept
+  apart from the log (encrypted), so an edited, removed, reordered or cut-off entry and a deleted log are reported in the
+  *Audit* view. Every exported report ends with the log position at saving: compare it with the log to check copies kept
+  in your evidence store, and check a file with `Get-FileHash` against its log entry. Someone with full control of the PC
+  can still replace both log and anchor, so keep exports in an evidence store; the authoritative record of changes in your
+  tenant is the Entra audit log. Times are UTC from the PC's clock.
+- **A copy outside the PC.** *Audit → Activity log → Copy the log to a folder* writes every entry also to a folder you
+  choose, such as a network share your SIEM collects (make it append-only for users). The *Audit* view checks that every
+  copied entry is still in the PC's log.
+- **Encrypted at rest.** Scans, audit scope, reviews, the tenant list and preferences are encrypted with Windows DPAPI for
+  the signed-in Windows user, and the page is shown from memory, so no decrypted copy is written to disk. DPAPI protects
+  against other Windows users and copies of the disk, not against programs running as you. Nothing is sent anywhere.
+- **Re-performable.** The audit report shows the rights of the account that ran the scan (a complete population needs
+  Global Reader and Reader at the tenant root group) and, for each part, its source and what it includes.
+- **Reviewer independence.** If the reviewer holds some of the access being reviewed, TenantWise asks before signing
+  off and the evidence says it was a self-review. A segregation-of-duties rule set flags people who can change both
+  production and non-production, and people who manage identities and can grant access to production.
+- **Signed reviews stay as signed.** A signed-off review can't be changed: starting a new review keeps the signed one as an
+  earlier version. Scans with a signed-off review are never removed automatically, also not when a tenant's data is deleted.
 
 **Running an access review (SOX quarterly user access review, ISO A.5.18)**
 1. *Audit → Audit scope:* tick the subscriptions in scope (for SOX: those running financially relevant systems) and
    confirm which are production.
 2. *Audit → Access review:* decide each access (*Keep*, *Remove* with reason or ticket, *Ask* the owner). Decisions save
    as you go.
-3. Sign off: enter the reviewer, confirm the statement, *Sign off and save evidence*. TenantWise saves the signed review
-   (HTML) and its population (CSV), both hashed and logged.
+3. Sign off: confirm the statement, *Sign off and save evidence*. The reviewer is the account you signed in with, and the
+   time is set by the app. TenantWise saves the signed review (HTML) and its population (CSV), both hashed and logged,
+   and only accepts a sign-off whose evidence file it saved itself.
 4. *Save audit report* for the full evidence pack: provenance, control summary, review status, findings, privileged
    access register, policies, changes since the compared scan, scan notes.
 
@@ -198,9 +213,15 @@ and slides.
   own app and only when a Global Administrator saves. Every change is logged in TenantWise's activity log and Entra's audit log.
 - The features can also be added by hand: paste [`setup/app-roles.json`](setup/app-roles.json) into the app
   registration's manifest (`appRoles`).
-- Features decide what TenantWise lets someone do; what they can *read* is still decided by their own Azure and Entra
-  rights. Assigning groups needs Entra ID P1. Leave *Assignment required* off: TenantWise itself lets in only Global
-  Administrators and the people you ticked.
+- **What features are, and aren't.** Features decide what TenantWise shows and lets someone do; the app checks them for
+  every save and export, sends the page only data for a person with at least one feature, and lists only that person's own
+  scans (Global Administrators see all). They are usage governance, not a security boundary: what someone can *read* is
+  decided by their own Azure and Entra rights, which they could also use with other tools. A saved report contains the
+  whole scan, so *Save report* needs every view. Assigning groups needs Entra ID P1.
+- **Assignment required (recommended).** Turn it on (Enterprise applications → TenantWise → Properties) and add a group of
+  the people who use TenantWise, Global Administrators included, under *Users and groups*; feature ticks count as
+  assignments too. Otherwise anyone in your organization can sign in to TenantWise and get tokens for its read
+  permissions, limited to their own rights. The *Users* view warns while it's off.
 
 **Export access (CSV)** lists everyone's access, one row per identity, role and scope, with audit scope, production,
 account enabled and last sign-in: the population auditors sample from.
@@ -234,22 +255,29 @@ minutes, done by a Global Administrator (or an Application Administrator togethe
    *Azure Service Management → user_impersonation*;
    *Microsoft Graph → Directory.Read.All, RoleManagement.Read.Directory, Policy.Read.All*,
    and for access packages, PIM for Groups and last sign-in *EntitlementManagement.Read.All, PrivilegedEligibilitySchedule.Read.AzureADGroup, AuditLog.Read.All*.
-   Then **Grant admin consent** for your tenant. (*AppRoleAssignment.ReadWrite.All* and *Application.ReadWrite.All* for
-   managing access don't need to be listed here: Microsoft asks a Global Administrator the first time they save.)
+   Then **Grant admin consent** for your tenant. Don't add *AppRoleAssignment.ReadWrite.All* or *Application.ReadWrite.All*
+   here: Microsoft asks a Global Administrator for them the first time they save in *Users*. When it does, **don't tick
+   "Consent on behalf of your organization"**: these two must only ever be approved for that administrator. The *Users*
+   view reports an organization-wide approval so it can be revoked.
 4. Copy the **Application (client) ID** and hand it to the people who will use TenantWise. They enter it once with their
    work email on the sign-in screen; TenantWise remembers it per tenant.
-5. Sign in as Global Administrator, open **Users** and click *Set up features in Entra*, then tick who may use what.
+5. **Restrict and protect sign-in.** *Enterprise applications → TenantWise → Properties*: *Assignment required* = **Yes**,
+   then add the people who use TenantWise (Global Administrators included) under *Users and groups*. Add TenantWise to a
+   Conditional Access policy (MFA, compliant device). Leave *Allow public client flows* (Authentication) off.
+6. Sign in as Global Administrator, open **Users** and click *Set up features in Entra*, then tick who may use what.
 
 Several tenants (for example subsidiaries, or an IT service provider's customers): register TenantWise in each tenant.
 The **Tenants** view keeps every tenant with its own app ID, and switching always means a fresh sign-in.
 
 ### Your data
 Scans are saved encrypted in `%LOCALAPPDATA%\TenantWise\snapshots\<tenant>` (last 30 kept, plus any with a signed-off
-access review); pick older ones from the drop-down. Audit scope and reviews are kept encrypted in
+access review); pick older ones from the drop-down. Each person sees their own scans; Global Administrators see all. Audit scope and reviews are kept encrypted in
 `%LOCALAPPDATA%\TenantWise\audit\<tenant>`, the activity log in `%LOCALAPPDATA%\TenantWise\activity.log`.
-The list of tenants (names, IDs, the account used and a short summary of each scan) and your settings are encrypted the
-same way (`tenants.dat`, `preferences.dat`). Removing a tenant from the list can also delete its scans and reviews.
-**Save report** writes an offline HTML copy of a scan. Encrypted files open only for the same Windows user on the same PC:
+The list of tenants (names, IDs, the account used and a short summary of each scan) and your preferences are encrypted
+the same way (`tenants.dat`, `preferences.dat`); the last app (client) ID used is kept unencrypted in `settings.json` to
+fill in the sign-in form (it isn't a secret). Removing a tenant from the list can also delete its scans and drafts, after
+a confirmation; signed-off reviews and their scans are kept.
+**Save report** writes an offline HTML copy of a scan, with your features and presentation mode applied. Encrypted files open only for the same Windows user on the same PC:
 keep exported reports and signed reviews in your evidence repository.
 
 > Scans and reports show resource names, IP ranges, tags and **who holds admin rights**. That's sensitive:

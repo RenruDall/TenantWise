@@ -268,7 +268,7 @@ class Handler(BaseHTTPRequestHandler):
             if f == "userType eq 'Guest'":
                 return paged([{"id": o["id"], "userType": "Guest"} for o in users if o.get("userType") == "Guest"])
             if f.startswith("startswith(displayName,"):
-                t = re.search(r"startswith\(displayName,'([^']*)'\)", f).group(1).lower()
+                t = re.search(r"startswith\(displayName,'((?:[^']|'')*)'\)", f).group(1).replace("''", "'").lower()
                 return paged([{"id": o["id"], "displayName": o["displayName"], "userPrincipalName": o.get("userPrincipalName")} for o in users
                               if o["displayName"].lower().startswith(t) or (o.get("userPrincipalName") or "").lower().startswith(t)][:15])
             if f == "accountEnabled eq false":
@@ -286,7 +286,7 @@ class Handler(BaseHTTPRequestHandler):
             want = re.search(r"appId eq '([^']+)'", q["$filter"][0]).group(1)
             return paged([app] if app and app["appId"] == want else [])
         if path == "/groups" and q.get("$filter", [""])[0].startswith("startswith(displayName,"):
-            t = re.search(r"startswith\(displayName,'([^']*)'\)", q["$filter"][0]).group(1).lower()
+            t = re.search(r"startswith\(displayName,'((?:[^']|'')*)'\)", q["$filter"][0]).group(1).replace("''", "'").lower()
             return paged([{"id": o["id"], "displayName": o["displayName"]} for o in g["objects"].values() if o["@odata.type"].endswith("group") and o["displayName"].lower().startswith(t)][:15])
         if path == "/organization":
             return self.send(200, {"value": [g["org"]]})
@@ -343,6 +343,11 @@ class Handler(BaseHTTPRequestHandler):
             if not graph or graph["id"] != m.group(1):
                 return self.error(404, "Request_ResourceNotFound", "no such service principal")
             return paged(g.get("graphAssignedTo", []))
+        if path == "/oauth2PermissionGrants":
+            m3 = re.match(r"^clientId eq '([^']+)'$", q.get("$filter", [""])[0])
+            if not m3:
+                return self.error(400, "BadRequest", "filter on clientId expected")
+            return paged([x for x in g.get("grants", []) if x["clientId"] == m3.group(1)])
         if path == "/policies/crossTenantAccessPolicy/default":
             return self.send(200, g.get("ctDefault", {}))
         if path == "/policies/crossTenantAccessPolicy/partners":

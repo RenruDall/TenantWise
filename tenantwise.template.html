@@ -487,10 +487,11 @@ function renderRoles() {
       <div><b>${rows.filter(r => r.type !== "Group" && (acDraft.get(r.id) || new Set()).size).length}</b>people with their own ticks</div><div><b>${changes.length}</b>unsaved change${changes.length === 1 ? "" : "s"}</div></div>
     ${allMissing ? `<div class="setupcard"><h3>Turn on access control</h3>
       <p>TenantWise adds its ${ROLE_DEFS.length} features (${ROLE_DEFS.map(r => esc(r.name)).join(", ")}) to its own app registration in Entra, as app roles. Nothing else in your tenant changes. Until you tick features for someone, only Global Administrators can use TenantWise.</p>
-      <p class="hint">Microsoft asks you once to approve <code>Application.ReadWrite.All</code> for this step, acting as you. If TenantWise is registered in another tenant (for example by its publisher), its roles are already there and this step isn't needed.</p>
+      <p class="hint">Microsoft asks you once to approve <code>Application.ReadWrite.All</code> for this step, acting as you. Don't tick "Consent on behalf of your organization". If TenantWise is registered in another tenant (for example by its publisher), its roles are already there and this step isn't needed.</p>
       <p><button class="btn primary" id="ac-setup">Set up features in Entra</button></p></div>`
       : missing.length ? `<p class="warn-inline"><b>This version adds features</b> that aren't in Entra yet: ${missing.map(v => esc(roleName(v))).join(", ")}. <button class="btn small" id="ac-setup">Add them</button></p>` : ""}
-    ${info.assignmentRequired ? `<p class="warn-inline"><b>"Assignment required" is on</b> for TenantWise in Entra: Global Administrators without a tick here can't sign in to TenantWise. You can leave it off: TenantWise itself lets in only Global Administrators and the people you tick.</p>` : ""}
+    ${(info.orgWideWriteConsent || []).length ? `<p class="err"><b>Write permissions are approved for your whole organization:</b> ${(info.orgWideWriteConsent || []).map(x => `<code>${esc(x)}</code>`).join(", ")}. They should only ever be approved for the administrator who saves here. Remove the grant in Entra: Enterprise applications → TenantWise → Permissions → Admin consent → revoke these two.</p>` : ""}
+    ${info.found && !info.assignmentRequired ? `<p class="warn-inline"><b>"Assignment required" is off</b> for TenantWise in Entra, so anyone in your organization can sign in to it and get tokens for its read permissions (limited to their own rights). Recommended: turn it on and add the group of people who use TenantWise, Global Administrators included, under Enterprise applications → TenantWise → Users and groups. Ticks here count as assignments too.</p>` : ""}
     ${allMissing ? "" : `<div class="toolbar"><div class="pick"><input type="search" id="ac-q" class="search" placeholder="Add a group or person: type a name…" value="${esc(acQuery)}" autocomplete="off">
         ${acFound.length ? `<ul class="picklist">${acFound.map(x => `<li data-acadd="${esc(x.id)}"><span class="av sm ${x.type === "Group" ? "g" : ""}" style="background:${avColor(x.id)}">${x.type === "Group" ? ico("group", true) : esc(initials(x.name))}</span><b>${esc(x.name)}</b><span class="rel">${x.type === "Group" ? "group" + (x.description ? " · " + esc(x.description) : "") : esc(x.upn || "")}</span></li>`).join("")}</ul>` : ""}</div>
       <span style="flex:1"></span>${changes.length ? `<button class="btn" id="ac-discard">Discard</button>` : ""}<button class="btn primary" id="ac-save" ${changes.length && !acBusy ? "" : "disabled"}>${acBusy ? '<span class="spin sm"></span>Saving…' : host ? "Save to Entra" : "Save"}</button></div>`}
@@ -1335,10 +1336,12 @@ $("expand").onclick = () => {
   render();
 };
 $("png").onclick = () => {
-  const a = document.createElement("a");
-  a.href = cy.png({ full: true, scale: 2, bg: css("--bg"), maxWidth: 12000, maxHeight: 12000 });
-  a.download = `tenantwise-${view}-${new Date().toISOString().slice(0, 10)}.png`;
-  a.click();
+  if (!can("export")) { flash(`Your TenantWise role doesn't include ${FEATURE_LABEL.export}.`); return; }
+  const dataUrl = cy.png({ full: true, scale: 2, bg: css("--bg"), maxWidth: 12000, maxHeight: 12000 });
+  const name = `tenantwise-${view}-${new Date().toISOString().slice(0, 10)}.png`;
+  if (host) { call("savePng", { name, dataUrl }).then(r => { if (r && r.path) flash(`Saved to ${r.path}`); }).catch(err => alert(err.message)); return; }
+  const a = document.createElement("a");                        // a saved report opened in a browser
+  a.href = dataUrl; a.download = name; a.click();
 };
 
 // ======================================================= audit scope and control mapping (ISO/IEC 27001:2022, SOX ITGC)
@@ -1357,6 +1360,30 @@ function detectedProd(sub) {
   return PROD_RE.test(n.name || "") && !NONPROD_RE.test(n.name || "");
 }
 const isProdSub = sub => AUDIT.production.length ? AUDIT.production.includes(sub) : detectedProd(sub);
+// The rights of the account that ran the scan: a population is complete only if it could read everything.
+function scannerRights() {
+  const pv = DATA.meta.provenance || {}, acct = String(pv.account || "").toLowerCase();
+  const p = ACC.principals.find(x => String(x.upn || "").toLowerCase() === acct);
+  if (!p) return { ok: false, text: "Not found among the identities with access: the account holds no Azure or Entra role, so the population may be incomplete." };
+  const e = effective(p.id);
+  const ent = [...new Set(e.en.filter(a => !jit(a)).map(a => a.role))];
+  const root = "/providers/Microsoft.Management/managementGroups/" + (DATA.meta.tenantId || "");
+  const rootRoles = [...new Set(e.az.filter(a => !jit(a) && String(a.scope).toLowerCase() === root.toLowerCase()).map(a => a.role))];
+  const dirOk = ent.some(r => /^(Global Reader|Global Administrator|Security Reader|Security Administrator)$/.test(r));
+  const azOk = rootRoles.length > 0;
+  return { ok: dirOk && azOk, text: `Entra: ${ent.join(", ") || "no standing directory role"}. Azure at the tenant root: ${rootRoles.join(", ") || "no role"}. ` +
+    (dirOk && azOk ? "Enough to read the whole tenant." : "Not enough to be sure the population is complete: use an account with Global Reader and Reader at the tenant root group.") };
+}
+const REPORT_DEFS = [
+  ["Structure and resources", "Azure Resource Graph: resourcecontainers and resources", "All management groups, subscriptions, resource groups and resources the account can read"],
+  ["Azure access", "Azure Resource Graph: authorizationresources (role assignments, PIM eligibility); role definitions from Azure Resource Manager", "Direct and inherited assignments on every readable scope; groups expanded to their members (nested groups too)"],
+  ["Entra admin roles", "Microsoft Graph: roleManagement/directory (assignments, eligibility schedules)", "Active and eligible directory role assignments, including role-assignable groups"],
+  ["Identities", "Microsoft Graph: users, groups, service principals", "Everyone with an Azure or Entra role, with account status, guest flag and last sign-in where licensed"],
+  ["Apps", "Microsoft Graph: applications, servicePrincipals, appRoleAssignedTo", "App registrations with secrets, certificates and owners; Microsoft Graph application permissions"],
+  ["Access packages and PIM for Groups", "Microsoft Graph: identityGovernance", "Packages, assignments, pending requests and group eligibility (when licensed and permitted)"],
+  ["Policies", "Azure Resource Graph: policyresources; Microsoft Graph: conditionalAccess policies", "Policy assignments and compliance; Conditional Access policies"],
+  ["Findings", "Computed by TenantWise from the parts above", "Rules and thresholds as set under Settings at the time of the report"],
+  ["Access review", "Computed by TenantWise", "Entra admin roles and Azure access in the audit scope (all subscriptions when none is set)"]];
 const CONTROLS = {
   priv: { name: "Privileged access", iso: "A.8.2 Privileged access rights", sox: "Access to programs and data: privileged access" },
   access: { name: "Access rights and reviews", iso: "A.5.15 Access control, A.5.18 Access rights", sox: "Access to programs and data: provisioning and periodic review" },
@@ -1583,6 +1610,25 @@ function computeFindings() {
       "Deploy to production through pipelines with approvals; give people standing rights on non-production only and production rights through PIM with approval.",
       sod);
   }
+  if (SUBS.some(s => isProdSub(s.id))) {
+    const both = [];
+    for (const p of userP) {
+      const e = effective(p.id);
+      const ent = e.en.filter(a => a.priv && !jit(a));
+      if (!ent.length) continue;
+      const grant = new Set();
+      for (const a of e.az) {
+        if (jit(a) || roleLevel(a.role) < 3) continue;
+        for (const s of subsUnder.get(a.scope) || []) if (isProdSub(s)) grant.add(s);
+        if (subOf(a.scope) && isProdSub(subOf(a.scope))) grant.add(subOf(a.scope));
+      }
+      if (grant.size) both.push(pItem(p.id, `${[...new Set(ent.map(a => a.role))].join(", ")} and can grant access to ${grant.size} production subscription(s)`));
+    }
+    add("medium", "Identity", "People who manage identities and can grant access to production",
+      "Someone who holds a standing Entra admin role and can also hand out access to production can create an account, give it production rights and remove the traces alone. SOX auditors treat this as a segregation-of-duties conflict.",
+      "Split the duties: keep Entra admin roles and production access-granting roles with different people, or make at least one of them PIM-eligible with approval by someone else.",
+      both);
+  }
   // ---------- apps: secrets and certificates, owners, permissions
   const AR = appRows(), appItem = (r, sub) => ({ app: r.id, label: r.name, sub });
   add("high", "Apps", "Apps that can make themselves Global Administrator",
@@ -1725,7 +1771,7 @@ $("report").addEventListener("click", e => {
 // ======================================================= audit: evidence, control summary, scope, access review
 let review = Object.assign({ decisions: {}, comments: {} }, (APP && APP.review) || {});
 const reviewSticky = new Set();            // people touched in "To decide": stay visible to add comments
-let reviewFilter = "open", reviewQuery = "", reviewPage = 0, reviewTimer = null, activity = null, reviewer = (APP && APP.account) || "";
+let reviewFilter = "open", reviewQuery = "", reviewPage = 0, reviewTimer = null, activity = null, reviewer = (APP && APP.account) || "", signing = false;
 const rkey = r => [r.id, r.plane, r.role, r.scopeId, r.group, r.pkg, r.status].join("|");
 const DECISIONS = [["keep", "Keep"], ["remove", "Remove"], ["question", "Ask"]];
 async function sha256(text) {
@@ -1811,33 +1857,35 @@ function reviewHtml() {
   const pct = pop.length ? Math.round(100 * decided / pop.length) : 100;
   return `<details class="finding" open><summary><span class="sev ${signed ? "info" : "medium"}">${signed ? "signed" : "review"}</span><span><b>Access review</b> <span class="tag">${esc(CONTROLS.access.iso)}</span></span><span class="n">${decided}/${pop.length}</span></summary>
   <div class="body">
-    ${signed ? `<p class="blast calm"><b>Signed off</b> by ${esc(signed.reviewer)} on ${esc(new Date(signed.time).toLocaleString())}: ${esc(signed.summary)}.${signed.evidenceSha256 ? ` Evidence SHA-256 <code>${esc(signed.evidenceSha256)}</code>.` : ""}</p>`
+    ${signed ? `<p class="blast calm"><b>Signed off</b> by ${esc(signed.reviewer)}${signed.onBehalfOf ? " for " + esc(signed.onBehalfOf) : ""}${signed.selfReviewed ? ` (self-review: ${esc(signed.selfReviewed)} of the entries are the reviewer's own)` : ""} on ${esc(new Date(signed.time).toLocaleString())}: ${esc(signed.summary)}.${signed.evidenceSha256 ? ` Evidence SHA-256 <code>${esc(signed.evidenceSha256)}</code>.` : ""}</p>`
       : `<p class="hint">Decide for every access whether it is still needed. <b>Keep</b> confirms it, <b>Remove</b> marks it for removal (add the reason or ticket), <b>Ask</b> flags it for the owner. Decisions are saved as you go${host ? ", encrypted on this PC" : " in this window only"}. Sign off once everything is decided: TenantWise saves the signed review as evidence.</p>`}
     <div class="meter"><div style="width:${pct}%"></div></div>
     <p class="hint">${decided} of ${pop.length} decided · ${removes} to remove · ${asks} to ask · population: Entra admin roles and Azure access ${AUDIT.inScope.length ? "to " + AUDIT.inScope.length + " in-scope subscription(s)" : "to all subscriptions"}</p>
     <div class="toolbar"><div class="chips">${chips}</div><input type="search" id="rq" placeholder="Search people, roles, scopes…" value="${esc(reviewQuery)}"></div>
     ${cards || `<p class="hint">${reviewFilter === "open" ? "Everything is decided." : "Nothing matches."}</p>`}
     ${pages > 1 ? `<p class="toolbar"><button class="btn small" data-pg="-1" ${reviewPage ? "" : "disabled"}>← Previous</button> <span class="hint">Page ${reviewPage + 1} of ${pages} · ${ids.length} people</span> <button class="btn small" data-pg="1" ${reviewPage < pages - 1 ? "" : "disabled"}>Next →</button></p>` : ""}
-    ${signed ? `<p><button class="btn" id="rv-restart">Start a new review</button></p>` : `<div class="signoff"><label>Reviewer <input id="rv-name" value="${esc(reviewer)}" placeholder="Name or email"></label>
+    ${signed ? `<p><button class="btn" id="rv-restart">Start a new review</button></p>` : `<div class="signoff"><label>Reviewer <input id="rv-name" value="${esc(host ? (APP.account || "") : reviewer)}" ${host ? 'readonly title="Signed off as the account you signed in with"' : 'placeholder="Name or email"'}></label>
       <label class="chk"><input type="checkbox" id="rv-confirm"> I reviewed every access listed and these decisions are mine.</label>
       ${can("signoff") ? "" : `<span class="hint">Signing off needs the <b>Sign off access reviews</b> role.</span>`}<button class="btn primary" id="rv-sign" data-need="signoff" ${decided === pop.length && pop.length ? "" : "disabled"} title="${decided === pop.length ? "" : "Decide every entry first"}">Sign off and save evidence</button></div>`}
   </div></details>`;
 }
 function activityHtml() {
-  if (!host) return `<details class="finding"><summary><span class="sev info">log</span><span><b>Activity log</b></span></summary><div class="body"><p class="hint">The app records every sign-in, scan, export and review sign-off in a tamper-evident log on the PC. Not available in a saved report.</p></div></details>`;
+  if (!host) return `<details class="finding"><summary><span class="sev info">log</span><span><b>Activity log</b></span></summary><div class="body"><p class="hint">The app records every sign-in, scan, export and review sign-off in a chained log on the PC. Not available in a saved report.</p></div></details>`;
   const body = !activity ? `<p><button class="btn" id="act-load">Show and verify the activity log</button></p>` :
-    `<p class="${activity.verified ? "blast calm" : "err"}">${activity.verified ? `<b>Intact:</b> all ${activity.lines} entries chain correctly; nothing was changed or removed.` : `<b>Broken:</b> ${esc(activity.problem)}`}<span class="rel">${esc(activity.path)}</span></p>
+    `<p class="${activity.verified ? "blast calm" : "err"}">${activity.verified ? `<b>Intact:</b> all ${activity.lines} entries chain correctly and match what this PC recorded${activity.anchoredSince > 1 ? ` (anchored since entry ${activity.anchoredSince}: an update or a lost anchor started it there)` : ""}. Compare with the log position printed in your exported reports to check copies kept elsewhere.` : `<b>Broken:</b> ${esc(activity.problem)}`}<span class="rel">${esc(activity.path)}</span></p>
      <table class="grid"><thead><tr><th>When</th><th>What</th><th>Who</th><th>Details</th></tr></thead><tbody>${(activity.entries || []).slice(0, 100).map(e =>
        `<tr><td>${esc(new Date(e.time).toLocaleString())}</td><td>${esc(e.action)}</td><td>${esc(e.account || e.windowsUser || "")}</td><td><span class="rel">${esc([e.scan && "scan " + e.scan, e.file, e.kind, e.sha256 && "SHA-256 " + e.sha256, e.reviewer && "reviewer " + e.reviewer, e.decisions].filter(Boolean).join(" · "))}</span></td></tr>`).join("")}</tbody></table>`;
-  return `<details class="finding"${activity ? " open" : ""}><summary><span class="sev info">log</span><span><b>Activity log</b> <span class="tag">tamper-evident</span></span></summary><div class="body">
-    <p class="hint">Every sign-in, scan, comparison, export and review sign-off, with the SHA-256 of each saved file. Each entry is chained to the one before, so edits and deletions show up. To check an exported file: <code>Get-FileHash &lt;file&gt;</code> and compare with the hash here.</p>${body}</div></details>`;
+  return `<details class="finding"${activity ? " open" : ""}><summary><span class="sev info">log</span><span><b>Activity log</b> <span class="tag">chained</span></span></summary><div class="body">
+    <p class="hint">Every sign-in, scan, comparison, export and review sign-off, with the SHA-256 of each saved file. Each entry is chained to the one before, and the latest position is kept apart from the log, so edited, removed or cut-off entries show up. Every exported report ends with the log position at saving. The authoritative record of changes in your tenant stays the Entra audit log. To check an exported file: <code>Get-FileHash &lt;file&gt;</code> and compare with the hash here.</p>
+    <p class="toolbar">${activity && activity.copyPath ? `<span class="hint">Copied to <code>${esc(activity.copyPath)}</code>${activity.copyNote ? " · " + esc(activity.copyNote) : ""}</span><button class="btn small" id="act-copy-stop">Stop copying</button>`
+      : `<span class="hint">Keep a second copy outside this PC, for example on a network share your SIEM collects (make it append-only for users).</span><button class="btn small" id="act-copy">Copy the log to a folder…</button>`}</p>${body}</div></details>`;
 }
 function renderAudit() {
   const pv = DATA.meta.provenance || {}, notes = DATA.meta.warnings || [];
   const rows = controlRows();
   const fact = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
   $("report").innerHTML = `<div class="wrap"><h2>Audit</h2>
-    <p class="hint">Evidence for ISO/IEC 27001:2022 and SOX IT general controls: what was read and how, how each control area tested, the periodic access review with sign-off, and a tamper-evident log. TenantWise only reads; it supports your auditor's testing and doesn't replace it.</p>
+    <p class="hint">Evidence for ISO/IEC 27001:2022 and SOX IT general controls: what was read and how, how each control area tested, the periodic access review with sign-off, and a chained activity log. TenantWise only reads; it supports your auditor's testing and doesn't replace it.</p>
     <div class="toolbar"><span style="flex:1"></span>
       <button class="btn" id="evidence" data-need="export">Save audit report</button><button class="btn" id="csv" data-need="export">Export access (CSV)</button></div>
     <details class="finding" open><summary><span class="sev info">evidence</span><span><b>About this evidence</b></span><span class="n">${pv.complete === false || notes.length ? notes.length + " note(s)" : "complete"}</span></summary><div class="body"><dl class="facts">
@@ -1849,7 +1897,7 @@ function renderAudit() {
       ${fact("Completeness", notes.length ? `${notes.length} part(s) could not be read; listed in the report under scan notes` : "Everything the account can see was read")}
       ${fact("Population", `${resCount} resources · ${ACC.principals.length} identities · ${ACC.azure.length} Azure and ${ACC.entra.length} Entra role assignments`)}
       ${fact("Scan fingerprint", APP && APP.scanSha256 ? `SHA-256 <code>${esc(APP.scanSha256)}</code>` : "")}
-      ${fact("Storage", APP && APP.protectedAtRest ? "Encrypted on this PC for your Windows account; nothing leaves the PC" : "")}
+      ${fact("Storage", APP && APP.protectedAtRest ? "Encrypted on this PC for your Windows account and shown from memory; nothing leaves the PC" : "")}
     </dl></div></details>
     <details class="finding"><summary><span class="sev info">scope</span><span><b>What TenantWise covers, and what it doesn't</b></span></summary><div class="body">
       <p>TenantWise gives evidence for the Azure and Entra side of these controls. It can't tell you that you are ISO 27001 compliant or SOX compliant: certification is done by an accredited certification body, and most of what they check isn't in Azure.</p>
@@ -1881,6 +1929,7 @@ function saveAuditSettings() {
   if (host) call("saveSettings", { settings: AUDIT }).catch(err => flash(err.message));
 }
 async function signOff() {
+  if (review.signedOff || signing) return;                      // already signed, or a click while saving
   const name = ($("rv-name").value || "").trim();
   if (!name) { flash("Enter the reviewer's name."); return; }
   if (!$("rv-confirm").checked) { flash("Confirm the statement first."); return; }
@@ -1888,13 +1937,24 @@ async function signOff() {
   const count = v => pop.filter(r => D[rkey(r)] === v).length;
   const summary = `${pop.length} reviewed: ${count("keep")} keep, ${count("remove")} remove, ${count("question")} to ask`;
   const time = new Date().toISOString();
+  const me = String((APP && APP.account) || name).toLowerCase();
+  const own = pop.filter(r => String(r.upn || "").toLowerCase() === me).length;
+  if (own && !confirm(`You hold ${own} of the ${pop.length} access entries in this review. Segregation of duties expects someone else to review their own access.\n\nSign off anyway? The evidence will say that you reviewed your own access.`)) return;
   const csv = reviewCsv(pop), popSha = await sha256("﻿" + csv);
-  const html = reviewEvidenceHtml(pop, name, time, summary, popSha);
+  const html = reviewEvidenceHtml(pop, name, time, summary, popSha, own);
+  signing = true;
+  try { await signOffSave(pop, name, time, summary, csv, popSha, html, own); } finally { signing = false; }
+}
+async function signOffSave(pop, name, time, summary, csv, popSha, html, own) {
   const saved = await saveFile(`tenantwise-access-review_${stamp()}.html`, html, "text/html", "access-review");
   if (!saved || saved.cancelled) return;
   await saveFile(`tenantwise-access-review_${stamp()}.csv`, csv, "text/csv", "access-review-csv");
-  review.signedOff = { reviewer: name, time, summary, evidenceSha256: saved.sha256 || (await sha256(html)), populationSha256: popSha, scanSha256: (APP && APP.scanSha256) || "" };
-  if (host) await call("saveReview", { review }).catch(err => flash(err.message));
+  review.signedOff = { reviewer: name, time, summary, evidenceSha256: saved.sha256 || (await sha256(html)), populationSha256: popSha, scanSha256: (APP && APP.scanSha256) || "", selfReviewed: own };
+  if (host) {                                                   // the app records the signed-in account and its own time
+    const r = await call("saveReview", { review }).catch(err => { flash(err.message); return null; });
+    if (!r || !r.signedOff) { delete review.signedOff; renderAudit(); return; }   // not signed: nothing changed in the app
+    review.signedOff = r.signedOff;
+  }
   findingsCache = null; renderAudit(); pushSummary();
 }
 function reviewCsv(pop) {
@@ -1903,7 +1963,7 @@ function reviewCsv(pop) {
   const cell = v => { v = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return /[",;\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
   return [cols.map(c => c[0]).join(","), ...pop.map(r => cols.map(c => cell(c[1](r))).join(","))].join("\r\n");
 }
-function reviewEvidenceHtml(pop, name, time, summary, popSha) {
+function reviewEvidenceHtml(pop, name, time, summary, popSha, own) {
   const D = review.decisions, label = r => ({ keep: "Keep", remove: "Remove", question: "Ask" })[D[rkey(r)]] || "";
   const t = (head, rows, cls) => `<table${cls ? ` class="${cls}"` : ""}><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   const act = pop.filter(r => D[rkey(r)] !== "keep");
@@ -1911,6 +1971,7 @@ function reviewEvidenceHtml(pop, name, time, summary, popSha) {
 <h1>Access review — ${esc(tenantName)}</h1>
 <p class="meta">ISO/IEC 27001:2022 ${esc(CONTROLS.access.iso)} · SOX ITGC: ${esc(CONTROLS.access.sox)}</p>
 ${t(["", ""], [["Reviewer", name], ["Signed off", new Date(time).toLocaleString() + " (" + time + ")"], ["Result", summary],
+  ["Reviewer independence", own ? `Self-review: the reviewer holds ${own} of the ${pop.length} access entries reviewed` : "The reviewer holds none of the access reviewed"],
   ["Population", `${pop.length} access entries: Entra admin roles and Azure access ${AUDIT.inScope.length ? "to in-scope subscriptions: " + AUDIT.inScope.map(scopeName).join(", ") : "to all subscriptions"}`],
   ["Data as of", `Scan of ${new Date(DATA.meta.generated).toLocaleString()} by ${(DATA.meta.provenance || {}).account || "—"} with ${(DATA.meta.provenance || {}).tool || "TenantWise"}`],
   ["Scan fingerprint", (APP && APP.scanSha256) ? "SHA-256 " + APP.scanSha256 : "—"], ["Population file", "SHA-256 " + popSha + " (the CSV saved with this review)"]], "kv")}
@@ -1935,9 +1996,12 @@ $("report").addEventListener("click", e => {
   const rf = t.closest("[data-rf]"); if (rf) { reviewFilter = rf.dataset.rf; reviewPage = 0; reviewSticky.clear(); renderAuditKeepScroll(); return; }
   const pg = t.closest("[data-pg]"); if (pg) { reviewPage += +pg.dataset.pg; reviewSticky.clear(); renderAuditKeepScroll(); return; }
   if (t.closest("#rv-sign")) { signOff(); return; }
-  if (t.closest("#rv-restart")) { if (confirm("Start a new review for this scan? The signed review stays saved as a file and in the activity log.")) { review = { decisions: {}, comments: {} }; saveReviewDraft(); renderAudit(); } return; }
+  if (t.closest("#rv-restart")) { if (confirm("Start a new review for this scan? The signed review is kept unchanged as an earlier version, and in the activity log.")) { review = { decisions: {}, comments: {} }; saveReviewDraft(); renderAudit(); } return; }
   if (t.closest("#scope-all")) { AUDIT.inScope = []; saveAuditSettings(); renderAuditKeepScroll(); return; }
   if (t.closest("#act-load")) { call("activity").then(r => { activity = r; renderAuditKeepScroll(); }).catch(err => flash(err.message)); return; }
+  if (t.closest("#act-copy") || t.closest("#act-copy-stop")) {
+    call("logCopy", { action: t.closest("#act-copy-stop") ? "stop" : "start" }).then(() => call("activity")).then(r => { activity = r; renderAuditKeepScroll(); }).catch(err => flash(err.message)); return;
+  }
 });
 $("report").addEventListener("change", e => {
   if (view !== "audit") return;
@@ -2150,6 +2214,7 @@ ${table(["", ""], [
     ["Source", "Microsoft Azure and Entra ID of tenant " + tenantName + (DATA.meta.tenantId ? " (" + DATA.meta.tenantId + ")" : "")],
     ["Method", "Read-only API calls: " + (pv.sources || []).join(", ") + (pv.requests ? ` (${pv.requests.resourceGraphQueries} Resource Graph queries, ${pv.requests.armCalls} ARM and ${pv.requests.graphCalls} Graph requests; ${pv.requests.retriedAfterThrottling} retried after throttling)` : "")],
     ["Read by", (pv.account || "—") + " with " + (pv.tool || "TenantWise") + "; the account's own permissions limit what is visible"],
+    ["Rights of the reading account", scannerRights().text],
     ["Read between", pv.started ? `${pv.started} and ${pv.finished} (UTC)` : DATA.meta.generated],
     ["Completeness", (DATA.meta.warnings || []).length ? `${DATA.meta.warnings.length} part(s) could not be read; see "Scan notes" at the end` : "Everything the account can see was read"],
     ["Population", `${resCount} resources, ${ACC.principals.length} identities, ${ACC.azure.length} Azure and ${ACC.entra.length} Entra role assignments, ${ACC.policies.length} policy assignments`],
@@ -2158,6 +2223,8 @@ ${table(["", ""], [
     ["Scan fingerprint", APP && APP.scanSha256 ? "SHA-256 " + APP.scanSha256 : "Not available (report made outside the app)"],
     ["Access list (CSV)", `${reg.length} rows; the CSV exported now has SHA-256 ${csvSha}`],
     ["Verify", "Re-compute SHA-256 of any exported file (PowerShell: Get-FileHash) and compare with TenantWise's activity log entry for that export."]], "kv")}
+${h("How each part was produced")}<p class="meta">So the report can be re-performed: where each part comes from and what it includes.</p>
+${table(["Part", "Source", "Includes"], REPORT_DEFS)}
 ${h("Controls")}<p class="meta">Where TenantWise's evidence fits ISO/IEC 27001:2022 Annex A and SOX IT general controls. The auditor decides how it is used.</p>
 ${table(["Control area", "ISO/IEC 27001:2022", "SOX ITGC", "What TenantWise shows", "Result"], ctl.map(r => [r.c.name, r.c.iso, r.c.sox, r.evidence, r.result]), "ctl")}
 ${h("Access review")}${so ? table(["", ""], [["Reviewer", so.reviewer], ["Signed off", so.time], ["Result", so.summary], ["Review evidence", "SHA-256 " + (so.evidenceSha256 || "—")], ["Population file", "SHA-256 " + (so.populationSha256 || "—")]], "kv")
@@ -2711,7 +2778,7 @@ if (APP && APP.native) {
       overlay(`<h2><span class="spin"></span>Scanning your estate…</h2><p class="hint" id="progress">Starting…</p>
         <p class="hint">Large tenants can take a few minutes.</p>`);
       try { await call("scan"); }
-      catch (err) { overlay(`<h2>Scan failed</h2><p>${esc(err.message)}</p><p><button class="btn" onclick="overlay('')">Close</button></p>`); }
+      catch (err) { overlay(`<h2>Scan failed</h2><p>${esc(err.message)}</p><p><button class="btn" id="scan-fail-close">Close</button></p>`); $("scan-fail-close").onclick = () => overlay(""); }
     };
     $("signout").onclick = () => call("signOut").catch(err => alert(err.message));
     $("switch").onclick = () => chooseTenant();
