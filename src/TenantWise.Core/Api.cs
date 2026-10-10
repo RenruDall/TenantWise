@@ -72,7 +72,7 @@ namespace TenantWise.Core
             _scope = scope ?? new ScanScope();
         }
 
-        private async Task<JsonNode> SendAsync(string resource, HttpMethod method, string url, string body, CancellationToken ct)
+        private async Task<JsonNode> SendAsync(string resource, HttpMethod method, string url, string body, CancellationToken ct, bool raw = false)
         {
             for (var attempt = 0; ; attempt++)
             {
@@ -106,6 +106,8 @@ namespace TenantWise.Core
                             catch (Exception) { /* not JSON */ }
                             throw new ApiException(status, code, $"HTTP {status}{(code != null ? " " + code : "")}: {message ?? res.ReasonPhrase}");
                         }
+                        if (raw && status >= 300) throw new ApiException(status, null, $"HTTP {status}: the download link wasn't followed");
+                        if (raw) return JsonValue.Create(text ?? "");
                         return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
                     }
                 }
@@ -173,6 +175,13 @@ namespace TenantWise.Core
             var url = path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || path.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
                 ? path : _ep.Graph + path;                                   // absolute: a nextLink from a previous page
             return await SendAsync("graph", HttpMethod.Get, url, null, ct).ConfigureAwait(false) as JsonObject;
+        }
+
+        /// <summary>GET on Microsoft Graph returning the body as text (for usage reports, which come as CSV).</summary>
+        public async Task<string> GraphGetTextAsync(string path, CancellationToken ct)
+        {
+            GraphCalls++;
+            return Str(await SendAsync("graph", HttpMethod.Get, _ep.Graph + path, null, ct, raw: true).ConfigureAwait(false)) ?? "";
         }
 
         /// <summary>A Microsoft Graph change (POST, PATCH, DELETE) with a token for a stronger resource, such as "graph-manage".

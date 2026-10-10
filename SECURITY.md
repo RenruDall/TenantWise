@@ -38,7 +38,9 @@ TenantWise is maintained by one person in their own time, so these are goals, no
 - It signs in with *delegated* permissions, so it can never see more than the signed-in person may see.
   Requested scopes: Azure Service Management `user_impersonation`; Microsoft Graph `Directory.Read.All`,
   `RoleManagement.Read.Directory`, `Policy.Read.All`; optionally `EntitlementManagement.Read.All`,
-  `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `AuditLog.Read.All`. All are read-only.
+  `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `AuditLog.Read.All`, and for Microsoft 365 `Channel.ReadBasic.All`,
+  `ChannelMember.Read.All`, `Reports.Read.All`. All are read-only. TenantWise doesn't read files, messages or the content
+  of sites and channels: only names, membership and the usage report's figures.
 
 **Your own app registration**
 - Every organization registers TenantWise in its own tenant (single tenant). There is no shared, publisher-controlled

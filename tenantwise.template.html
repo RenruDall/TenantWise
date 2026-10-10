@@ -19,7 +19,7 @@
   --bg:#F3F5F8; --panel:#FFFFFF; --ink:#1A2330; --mute:#5A6676; --line:#DCE2E9; --chip:#EDF1F5; --acc:#0F6CBD;
   --c-tenant:#4F52B2; --c-mg:#7E4BA3; --c-sub:#9A7400; --c-rg:#1E7F8E; --c-subnet:#6B7F95;
   --c-compute:#0F6CBD; --c-network:#0E8A6E; --c-data:#C2570C; --c-other:#6B7785; --c-edge:#A9B4C1; --c-hl:#D13438;
-  --c-user:#3B6FE0; --c-group:#B13FA4; --c-sp:#8A5A1C; --c-role:#C4314B; --c-priv:#C50F1F; --c-pkg:#0E7A3E;
+  --c-user:#3B6FE0; --c-group:#B13FA4; --c-sp:#8A5A1C; --c-role:#C4314B; --c-priv:#C50F1F; --c-pkg:#0E7A3E; --c-m365:#D83B01; --c-team:#5B5FC7; --c-site:#038387; --c-chan:#7A7FD8;
   --sev-high:#C50F1F; --sev-med:#BC4B09; --sev-low:#0F6CBD; --ok:#0E7A3E;
 }
 @media (prefers-color-scheme: dark) {
@@ -29,7 +29,7 @@
     --bg:#0F1724; --panel:#162131; --ink:#E6ECF3; --mute:#9AA8B8; --line:#26354A; --chip:#1E2B3E; --acc:#4FA3F7;
     --c-tenant:#9EA2FF; --c-mg:#C69CE6; --c-sub:#E3B93B; --c-rg:#5CC3D3; --c-subnet:#8DA2B8;
     --c-compute:#6CB2F7; --c-network:#4CD0B0; --c-data:#F2955A; --c-other:#9AA6B3; --c-edge:#4C5D73; --c-hl:#FF6B78;
-    --c-user:#7FA7FF; --c-group:#E07ADB; --c-sp:#D9A35E; --c-role:#FF7A8E; --c-priv:#FF5C6C; --c-pkg:#4CC97F;
+    --c-user:#7FA7FF; --c-group:#E07ADB; --c-sp:#D9A35E; --c-role:#FF7A8E; --c-priv:#FF5C6C; --c-pkg:#4CC97F; --c-m365:#FF8C5A; --c-team:#9EA2FF; --c-site:#3CC5C9; --c-chan:#B5B8FF;
   --sev-high:#E5484D; --sev-med:#E07B2E; --sev-low:#3A8EE6; --ok:#3FB77A;
   }
 }
@@ -39,7 +39,7 @@
   --bg:#0F1724; --panel:#162131; --ink:#E6ECF3; --mute:#9AA8B8; --line:#26354A; --chip:#1E2B3E; --acc:#4FA3F7;
   --c-tenant:#9EA2FF; --c-mg:#C69CE6; --c-sub:#E3B93B; --c-rg:#5CC3D3; --c-subnet:#8DA2B8;
   --c-compute:#6CB2F7; --c-network:#4CD0B0; --c-data:#F2955A; --c-other:#9AA6B3; --c-edge:#4C5D73; --c-hl:#FF6B78;
-  --c-user:#7FA7FF; --c-group:#E07ADB; --c-sp:#D9A35E; --c-role:#FF7A8E; --c-priv:#FF5C6C; --c-pkg:#4CC97F;
+  --c-user:#7FA7FF; --c-group:#E07ADB; --c-sp:#D9A35E; --c-role:#FF7A8E; --c-priv:#FF5C6C; --c-pkg:#4CC97F; --c-m365:#FF8C5A; --c-team:#9EA2FF; --c-site:#3CC5C9; --c-chan:#B5B8FF;
   --sev-high:#E5484D; --sev-med:#E07B2E; --sev-low:#3A8EE6; --ok:#3FB77A;
 }
 * { box-sizing:border-box; }
@@ -92,6 +92,7 @@ nav.rail .navgroup button.on { background:var(--frame-hi); color:#fff; font-weig
 .btn.danger { color:var(--sev-high); }
 .btn.icon { padding:0 8px; }
 .filters { display:flex; flex-wrap:wrap; gap:6px; }
+.filters label.sep { margin-left:10px; }
 .filters label { display:inline-flex; align-items:center; gap:5px; font-size:12px; background:var(--chip); border-radius:999px; padding:3px 10px; cursor:pointer; user-select:none; }
 .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
 main { flex:1; display:flex; min-height:0; }
@@ -369,9 +370,9 @@ const COLS = {
     ["inScope", "In audit scope", "rec"], ["prod", "Production", "rec"], ["status", "Status", "req"], ["until", "Ends", "rec"], ["group", "Via group", "rec"],
     ["pimGroup", "Via PIM for Groups", "rec"], ["pkg", "Via access package", "rec"], ["enabled", "Account enabled", "rec"], ["lastSignIn", "Last sign-in", "rec"], ["id", "Object ID", "req"]] },
 };
-const PREF_DEFAULT = { theme: "system", hidden: [], mask: false, secretDays: 30, secretYears: 2, staleDays: 14, inactiveDays: 90, maxOwners: 3, cols: {} };
+const PREF_DEFAULT = { theme: "system", hidden: [], mask: false, secretDays: 30, secretYears: 2, staleDays: 14, inactiveDays: 90, maxOwners: 3, cols: {}, show: {} };
 const PREFS = Object.assign({}, PREF_DEFAULT, (APP && APP.prefs) || {});
-PREFS.cols = Object.assign({}, PREFS.cols || {}); PREFS.hidden = Array.isArray(PREFS.hidden) ? PREFS.hidden : [];
+PREFS.cols = Object.assign({}, PREFS.cols || {}); PREFS.show = Object.assign({ azure: true, teams: true, sites: true }, PREFS.show || {}); PREFS.hidden = Array.isArray(PREFS.hidden) ? PREFS.hidden : [];
 for (const k of ["secretDays", "secretYears", "staleDays", "inactiveDays", "maxOwners"]) { const n = +PREFS[k]; PREFS[k] = n > 0 && n < 10000 ? n : PREF_DEFAULT[k]; }
 function colOn(kind, key) {
   const c = COLS[kind].cols.find(x => x[0] === key);
@@ -600,7 +601,7 @@ const TYPE_ICON = {
   "microsoft.servicebus/namespaces": "link", "microsoft.managedidentity/userassignedidentities": "personkey",
   "guest": "guest", "microsoft.resources/subscriptions": "sub", "microsoft.resources/resourcegroups": "rg", "managementgroup": "mg", "tenant": "tenant", "subnet": "subnet" };
 const CAT_ICON = { compute: "server", network: "vnet", data: "database", other: "other", tenant: "tenant", mg: "mg", sub: "sub", rg: "rg", subnet: "subnet",
-  user: "user", group: "group", sp: "sp", role: "role", pkg: "pkg", entra: "entra" };
+  user: "user", group: "group", sp: "sp", role: "role", pkg: "pkg", entra: "entra", m365: "box", team: "group", site: "web", chan: "link" };
 const iconCache = new Map();
 function iconUri(type, cat, color) {        // a data: URI for graph nodes and tiles
   const name = TYPE_ICON[type] || CAT_ICON[cat] || "other", key = name + "|" + color;
@@ -647,6 +648,7 @@ const scopeKind = id => id === "tenant" ? "tenant root" : id.startsWith("mg:") ?
 // ======================================================= model: access
 const ACC = DATA.access || { principals: [], azure: [], entra: [], members: {}, policies: [], ca: [] };
 for (const p of ACC.principals) if (p.guest) p.home = guestHome(p);       // the partner's domain, kept when names are masked
+const UPN_ID = new Map(ACC.principals.filter(p => p.upn).map(p => [String(p.upn).toLowerCase(), p.id]));   // real sign-in names, kept in memory only
 if (PREFS.mask) maskPeople(ACC);
 const pById = new Map(ACC.principals.map(p => [p.id, p]));
 const memberOf = new Map();                  // principal -> groups it is (transitively) in
@@ -689,6 +691,133 @@ const pName = id => (pById.get(id) || { name: id }).name;
 const subsUnder = new Map();                 // scope -> subscriptions at or below it
 for (const n of DATA.nodes) if (n.cat === "sub") for (const a of ancestors(n.id)) { if (!subsUnder.has(a)) subsUnder.set(a, new Set()); subsUnder.get(a).add(n.id); }
 const subOf = sc => { const m = /^\/subscriptions\/[^/]+/.exec(sc || ""); return m ? m[0] : null; };
+
+// ======================================================= Microsoft 365: teams, channels, SharePoint sites
+const M365 = DATA.m365 || null;
+const TEAMS = (M365 && M365.teams) || [], SITES = (M365 && M365.sites) || [];
+const teamById = new Map(TEAMS.map(t => [t.id, t])), siteById = new Map(SITES.map(x => [x.id, x]));
+const teamsOf = new Map();                   // person -> [{team, owner}]
+for (const t of TEAMS) {
+  for (const u of t.members || []) { if (!teamsOf.has(u)) teamsOf.set(u, []); teamsOf.get(u).push({ team: t.id, owner: (t.owners || []).includes(u) }); }
+  for (const u of t.owners || []) { if (!teamsOf.has(u)) teamsOf.set(u, []); if (!teamsOf.get(u).some(x => x.team === t.id)) teamsOf.get(u).push({ team: t.id, owner: true }); }
+}
+const sitesOfTeam = new Map();
+for (const x of SITES) if (x.team) { if (!sitesOfTeam.has(x.team)) sitesOfTeam.set(x.team, []); sitesOfTeam.get(x.team).push(x.id); }
+for (const [id, u] of Object.entries((M365 && M365.people) || {}))   // people known only from Teams
+  if (!pById.has(id)) { pById.set(id, { id, name: u.name || id, upn: u.upn, kind: "user", guest: !!u.guest, m365only: true }); if (u.upn && !UPN_ID.has(String(u.upn).toLowerCase())) UPN_ID.set(String(u.upn).toLowerCase(), id); }
+function fnv1a(t) { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, "0"); }
+const siteOwnerId = new Map();               // site -> the owner as a person (sites without a team; a team site's owner is the team)
+for (const x of SITES) {
+  if (x.team || !(x.ownerUpn || x.owner)) continue;
+  const upn = String(x.ownerUpn || "").toLowerCase(), known = upn && UPN_ID.get(upn);
+  const pid = known || "owner:" + fnv1a(upn || String(x.owner).toLowerCase());   // no name in the id: it's exported
+  if (!pById.has(pid)) pById.set(pid, { id: pid, name: x.owner || x.ownerUpn, upn: x.ownerUpn || "", kind: upn ? "user" : "other", guest: /#ext#/i.test(upn), m365only: true });
+  siteOwnerId.set(x.id, pid);
+}
+function maskM365() {                        // presentation mode: people known only from Microsoft 365 get placeholders too
+  let n = 0;
+  for (const p of pById.values()) if (p.m365only && !p.masked) {
+    const k = String(++n).padStart(3, "0");
+    p.name = (p.guest ? "Guest M" : "User M") + k; p.upn = (p.guest ? "guest-m" : "user-m") + k + "@masked"; p.masked = true;
+  }
+}
+if (PREFS.mask) maskM365();
+const SITE_KIND = t => /^GROUP/i.test(t) ? "Team site" : /^TEAMCHANNEL/i.test(t) ? "Channel site" : /^SITEPAGEPUBLISHING/i.test(t) ? "Communication site" : /^STS/i.test(t) ? "Classic team site" : t || "Site";
+const siteDays = x => x.lastActivity ? Math.max(0, Math.floor((SCAN_TIME - new Date(x.lastActivity).getTime()) / 864e5)) : null;
+const fmtBytes = n => !n ? "0" : n > 1e12 ? (n / 1e12).toFixed(1) + " TB" : n > 1e9 ? (n / 1e9).toFixed(1) + " GB" : n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.round(n / 1e3) + " KB";
+function m365Label(key) {
+  const [t, ...r] = key.split(":"), id = r.join(":");
+  if (t === "team") return (teamById.get(id) || { name: id }).name;
+  if (t === "site") return (siteById.get(id) || { name: id }).name;
+  if (t === "chan") { const [tid, cid] = id.split("|"); const c = ((teamById.get(tid) || {}).channels || []).find(c => c.id === cid); return c ? c.name : cid; }
+  return key === "m365" ? "Microsoft 365" : key === "m365:teams" ? `Teams (${TEAMS.length})` : `SharePoint sites (${SITES.length})`;
+}
+function showM365(key) {
+  const [t, ...r] = key.split(":"), id = r.join(":");
+  const list = (title, items) => items.length ? `<h3>${title} (${items.length})</h3><ul>${items.join("")}</ul>` : "";
+  const head = (cat, name, type) => `<div class="ph"><span class="tile">${tileImg(cat, cat)}</span><div><h2>${esc(name)}</h2><div class="type">${esc(type)}</div></div></div>`;
+  if (t === "team") {
+    const tm = teamById.get(id); if (!tm) return;
+    const owners = (tm.owners || []).map(u => `<li>${pLink(u)}</li>`);
+    const guests = (tm.members || []).filter(u => (pById.get(u) || {}).guest).map(u => `<li>${pLink(u)}</li>`);
+    const chans = (tm.channels || []).map(c => `<li><a data-m="chan:${esc(tm.id + "|" + c.id)}">${esc(c.name)}</a><span class="rel">${esc(c.type)}${c.members ? ` · ${c.members.length} member${c.members.length === 1 ? "" : "s"}` : " · everyone in the team"}</span></li>`);
+    const sites = (sitesOfTeam.get(tm.id) || []).map(sid => { const x = siteById.get(sid); return `<li><a data-m="site:${esc(sid)}">${esc(x.name)}</a><span class="rel">${esc(SITE_KIND(x.template))}${siteDays(x) != null ? ` · last activity ${siteDays(x)} days ago` : ""}</span></li>`; });
+    const warn = !(tm.owners || []).length ? `<p class="blast"><b>No owner:</b> nobody can manage members, guests or settings of this team.</p>` :
+      (tm.owners || []).length === 1 ? `<p class="warn-inline"><b>One owner only:</b> if ${esc(pName(tm.owners[0]))} leaves, nobody manages this team.</p>` : "";
+    $("panel").innerHTML = head("team", tm.name, `Team · ${tm.visibility || "private"}`) + warn +
+      `<dl><dt>Members</dt><dd>${(tm.members || []).length}</dd><dt>Guests</dt><dd>${tm.guests || 0}</dd><dt>Created</dt><dd>${esc(fmtDate(tm.created))}</dd></dl>` +
+      list("Owners", owners) + list("Guests", guests) + list("Channels", chans) + list("SharePoint", sites) +
+      `<p class="hint">Double-click it on the map to follow its members, channels and site.</p>`;
+  } else if (t === "site") {
+    const x = siteById.get(id); if (!x) return;
+    const tm = x.team && teamById.get(x.team), d = siteDays(x);
+    $("panel").innerHTML = head("site", x.name, SITE_KIND(x.template)) +
+      (x.anonymousLinks ? `<p class="blast"><b>${x.anonymousLinks} "Anyone" link${x.anonymousLinks === 1 ? "" : "s"}:</b> files here can be opened without signing in.</p>` : "") +
+      `<dl>${x.url ? `<dt>Address</dt><dd><a data-ext="${esc(x.url)}">${esc(x.url)}</a></dd>` : ""}${tm ? `<dt>Team</dt><dd><a data-m="team:${esc(tm.id)}">${esc(tm.name)}</a></dd>` : ""}` +
+      `<dt>Owner</dt><dd>${siteOwnerId.has(x.id) ? `<a data-p="${esc(siteOwnerId.get(x.id))}">${esc(pName(siteOwnerId.get(x.id)))}</a>` : tm ? `the team's owners` : "—"}</dd><dt>Last activity</dt><dd>${d != null ? esc(fmtDate(x.lastActivity)) + ` (${d} days ago)` : "—"}</dd>` +
+      `<dt>Files</dt><dd>${x.files || 0}</dd><dt>Storage used</dt><dd>${fmtBytes(x.storage)}</dd>` +
+      (x.externalSharing ? `<dt>External sharing</dt><dd>${esc(x.externalSharing)}</dd>` : "") + (x.guestLinks ? `<dt>Links for guests</dt><dd>${x.guestLinks}</dd>` : "") + `</dl>` +
+      (tm ? `<p class="hint">Who can open it: the team's owners and members${x.channelSite ? " of the channel" : ""}.</p>` : `<p class="hint">Not connected to a team: its SharePoint groups aren't read (they need SharePoint permissions TenantWise doesn't request).</p>`);
+  } else if (t === "chan") {
+    const [tid, cid] = id.split("|"), tm = teamById.get(tid), c = tm && (tm.channels || []).find(c => c.id === cid); if (!c) return;
+    $("panel").innerHTML = head("chan", c.name, `${c.type} channel of ${tm.name}`) +
+      (c.members ? list("Members", c.members.map(u => `<li>${pLink(u)}</li>`)) : `<p>Everyone in <a data-m="team:${esc(tm.id)}">${esc(tm.name)}</a> can open this channel.</p>`);
+  } else {
+    $("panel").innerHTML = head("m365", "Microsoft 365", "Teams and SharePoint") +
+      `<div class="stats"><div><b>${TEAMS.length}</b>teams</div><div><b>${TEAMS.filter(t => t.visibility === "public").length}</b>public</div><div><b>${TEAMS.reduce((a, t) => a + (t.guests || 0), 0)}</b>guest memberships</div><div><b>${SITES.length}</b>sites</div></div>` +
+      (M365 && M365.concealed ? `<p class="warn-inline">Site names are concealed in Microsoft 365 reports, so sites can't be named or linked to teams.</p>` : "") +
+      `<p class="hint">Click <b>Teams</b> or <b>SharePoint sites</b> to open them. Report of ${esc((M365 && M365.reportDate) || "—")}.</p>`;
+  }
+}
+function m365PersonHtml(pid) {
+  const ts = teamsOf.get(pid) || [], owned = [...siteOwnerId].filter(([, o]) => o === pid).map(([sid]) => siteById.get(sid)).filter(Boolean);
+  if (!ts.length && !owned.length) return "";
+  const own = ts.filter(x => x.owner), mem = ts.filter(x => !x.owner);
+  const priv = TEAMS.flatMap(t => (t.channels || []).filter(c => (c.members || []).includes(pid)).map(c => ({ t, c })));
+  const li = x => `<li><a data-m="team:${esc(x.team)}">${esc((teamById.get(x.team) || {}).name || x.team)}</a><span class="rel">${esc((teamById.get(x.team) || {}).visibility || "")}</span></li>`;
+  return `<h3>Microsoft 365</h3>${own.length ? `<p><b>Owner of ${own.length} team${own.length === 1 ? "" : "s"}</b></p><ul>${own.map(li).join("")}</ul>` : ""}` +
+    (mem.length ? `<p><b>Member of ${mem.length} team${mem.length === 1 ? "" : "s"}</b></p><ul>${mem.slice(0, 50).map(li).join("")}</ul>` : "") +
+    (priv.length ? `<p><b>In ${priv.length} private or shared channel${priv.length === 1 ? "" : "s"}</b></p><ul>${priv.map(({ t, c }) => `<li><a data-m="chan:${esc(t.id + "|" + c.id)}">${esc(c.name)}</a><span class="rel">${esc(t.name)} · ${esc(c.type)}</span></li>`).join("")}</ul>` : "") +
+    (owned.length ? `<p><b>Owner of ${owned.length} SharePoint site${owned.length === 1 ? "" : "s"}</b></p><ul>${owned.map(x => `<li><a data-m="site:${esc(x.id)}">${esc(x.name)}</a><span class="rel">${esc(SITE_KIND(x.template))}</span></li>`).join("")}</ul>` : "");
+}
+function focusM365(key) {                    // from a link anywhere: open the Microsoft 365 branch on the map and select the item
+  if (view !== "mind" || trail) setView("mind");
+  showBranch(key.startsWith("site:") ? "sites" : "teams");
+  if (key.startsWith("team:") || key.startsWith("chan:")) expanded.add("m365:teams"); else if (key.startsWith("site:")) expanded.add("m365:sites");
+  if (key.startsWith("chan:")) expanded.add("team:" + key.slice(5).split("|")[0]);
+  render(true);
+  const el = cy.getElementById(key);
+  if (el.length) { highlight(el); cy.animate({ center: { eles: el }, zoom: Math.max(cy.zoom(), 1) }, { duration: 300 }); }
+  showM365(key);
+}
+document.addEventListener("click", e => {
+  const m = e.target.closest && e.target.closest("[data-m]");
+  if (m) { e.preventDefault(); e.stopPropagation(); focusM365(m.dataset.m); }
+}, true);
+{ const basePrincipal = showPrincipal;      // people: add their teams and channels to the details
+  showPrincipal = pid => { basePrincipal(pid); const h = m365PersonHtml(pid); if (h) $("panel").insertAdjacentHTML("beforeend", h); }; }
+// the Microsoft 365 branch of the map: tenant → Microsoft 365 → Teams (→ channels) / SharePoint sites; branches open on click
+function m365Elements(rootId) {
+  if (!M365 || (!TEAMS.length && !SITES.length)) return [];
+  const els = [], node = (id, cat, label, cls) => els.push({ group: "nodes", data: { id, ref: id, kind: id.split(":")[0] === "m365" ? "m365" : id.split(":")[0], label, cat, icon: iconUri(cat, cat, css("--c-" + cat) || css("--c-other")) }, classes: cls || "" });
+  const edge = (a, b) => els.push({ group: "edges", data: { id: "h:" + b, source: a, target: b } });
+  node("m365", "m365", "Microsoft 365"); if (rootId) edge(rootId, "m365");
+  if (TEAMS.length) {
+    const open = expanded.has("m365:teams");
+    node("m365:teams", "team", open ? `Teams (${TEAMS.length})` : `Teams (${TEAMS.length})`, open ? "" : "collapsed"); edge("m365", "m365:teams");
+    if (open) for (const t of TEAMS) {
+      const k = "team:" + t.id, chans = (t.channels || []).filter(c => c.type !== "standard"), topen = expanded.has(k);
+      node(k, "team", t.name + (chans.length && !topen ? ` (${chans.length})` : ""), (!(t.owners || []).length ? "privnode " : "") + (chans.length && !topen ? "collapsed" : "")); edge("m365:teams", k);
+      if (topen) for (const c of chans) { const ck = "chan:" + t.id + "|" + c.id; node(ck, "chan", c.name); edge(k, ck); }
+    }
+  }
+  if (SITES.length) {
+    const open = expanded.has("m365:sites");
+    node("m365:sites", "site", `SharePoint sites (${SITES.length})`, open ? "" : "collapsed"); edge("m365", "m365:sites");
+    if (open) for (const x of SITES.slice(0, 400)) { node("site:" + x.id, "site", x.name, x.anonymousLinks ? "privnode" : ""); edge("m365:sites", "site:" + x.id); }
+  }
+  return els;
+}
 function pkgsFor(pid, g) {                   // access packages of pid that grant group g
   return (pkgAssignBy.get(pid) || []).filter(x => (pkgOfGroup.get(g) || []).includes(x.pkg) && PKG.has(x.pkg)).map(x => ({ pkg: PKG.get(x.pkg), until: x.until }));
 }
@@ -747,6 +876,13 @@ $("meta").textContent = DATA.meta.empty ? "" :
   `${resCount} resource${resCount === 1 ? "" : "s"} · ${relEdges.length} connection${relEdges.length === 1 ? "" : "s"} · ` +
   `${ACC.principals.length} ${ACC.principals.length === 1 ? "identity" : "identities"}`;
 function updateWarn() {
+  if (trail) {
+    const n = trail.nodes.size, open = [...trail.nodes.keys()].filter(k => !k.startsWith("more:") && !trail.opened.has(k)).length;
+    $("warn").innerHTML = `<p class="warn trailbar"><b>Following relations from ${esc(trailNode(trail.root).label)}</b> · ${n} item${n === 1 ? "" : "s"} · ` +
+      (open ? `double-click any item to show what it's connected to (${open} not opened yet)` : "everything connected is shown") +
+      ` <button class="btn small" id="trail-back">Back one step</button> <button class="btn small" id="trail-close">Close</button></p>`;
+    return;
+  }
   let msg = "";
   if (view === "mind" && !AUTO_EXPAND) msg = `${resCount} resources: resource groups start collapsed. Click one to open it, or use Expand all.`;
   if (view === "topo" && topoCompact) msg = `Large estate: the topology starts with the network backbone. Click a subnet to show what's connected to it.`;
@@ -760,14 +896,50 @@ for (const [k, label] of CATS) {
   l.innerHTML = `<input type="checkbox" checked data-cat="${k}"><span class="dot" style="background:var(--c-${k})"></span>${label}`;
   $("filters").appendChild(l);
 }
+// what the map shows: Azure, Teams, SharePoint (the starting choice is in Settings, the checkmarks change it for now)
+const BRANCHES = [["azure", "Azure subscriptions"], ["teams", "Teams"], ["sites", "SharePoint sites"]];
+const hiddenBranches = new Set(BRANCHES.map(b => b[0]).filter(k => !PREFS.show[k]));
+function addBranchFilters() {
+  const bar = $("filters"); bar.querySelectorAll("[data-branch-l]").forEach(x => x.remove());
+  for (const [k, label] of BRANCHES) {
+    if (k !== "azure" && !(M365 && (k === "teams" ? TEAMS.length : SITES.length))) continue;
+    const l = document.createElement("label"); l.dataset.branchL = k; if (k === "azure") l.className = "sep";
+    l.innerHTML = `<input type="checkbox" ${hiddenBranches.has(k) ? "" : "checked"} data-branch="${k}"><span class="dot" style="background:var(--c-${k === "azure" ? "sub" : k === "teams" ? "team" : "site"})"></span>${label}`;
+    bar.appendChild(l);
+  }
+}
+addBranchFilters();
 $("filters").addEventListener("change", e => {
-  const c = e.target.dataset.cat;
-  e.target.checked ? hiddenCats.delete(c) : hiddenCats.add(c);
-  applyFilters();
+  const c = e.target.dataset.cat, b = e.target.dataset.branch, set = b ? hiddenBranches : hiddenCats, k = b || c;
+  e.target.checked ? set.delete(k) : set.add(k);
+  if (b && !trail && view === "mind") render(); else applyFilters();   // the radial layout makes room for what's shown
+  if (b && [...document.querySelectorAll("[data-branch]")].every(x => !x.checked)) flash("Everything is hidden: tick Azure, Teams or SharePoint to show them again.");
 });
+const NOT_AZURE = new Set(["principal", "role", "pkg", "entra", "more", "m365", "team", "site", "chan"]);
+const branchGone = k => hiddenBranches.has(k) || (k === "teams" && !TEAMS.length) || (k === "sites" && !SITES.length);
+function branchOf(n) {                       // which part of the estate a node belongs to (null: always shown)
+  const id = n.id(), k = n.data("kind");
+  if (id === "m365:teams" || k === "team" || k === "chan") return "teams";
+  if (id === "m365:sites" || k === "site") return "sites";
+  if (id === "m365") return branchGone("teams") && branchGone("sites") ? "m365" : null;
+  if (n.data("cat") === "tenant" || NOT_AZURE.has(k)) return null;
+  return "azure";                            // map nodes (no kind) and resources
+}
 function applyFilters() {
   if (view === "access") return;
-  cy.nodes().forEach(n => n.style("display", hiddenCats.has(n.data("cat")) ? "none" : "element"));
+  const off = n => {
+    if (trail && n.id() === trail.root) return false;
+    const k = n.data("kind"), catOff = hiddenCats.has(n.data("cat")) && !NOT_AZURE.has(k);   // categories are for resources only
+    if (view === "topo" && !trail) return catOff;
+    const b = branchOf(n);
+    return catOff || (b === "m365" ? true : b ? hiddenBranches.has(b) : false);
+  };
+  cy.nodes().forEach(n => n.style("display", off(n) ? "none" : "element"));
+  if (trail) cy.nodes("[kind='more']").forEach(n => { if (!n.neighborhood("node:visible").length) n.style("display", "none"); });
+}
+function showBranch(k) {                     // a link to something on a hidden part of the map shows that part again
+  if (!hiddenBranches.delete(k)) return;
+  const el = document.querySelector(`[data-branch="${k}"]`); if (el) el.checked = true;
 }
 
 // ======================================================= style
@@ -810,6 +982,11 @@ function buildStyle() {
     { selector: "edge.treeedge", style: { "width": 1.2, "line-color": css("--c-edge"), "opacity": .7 } },
     { selector: "node.lr", style: { "text-valign": "center", "text-halign": "right", "text-margin-x": 5, "text-margin-y": 0 } },
     { selector: "edge.taxi", style: { "curve-style": "taxi", "taxi-direction": "rightward", "taxi-turn": 40 } },
+    { selector: "node.root", style: { "width": 40, "height": 40, "font-size": 13, "font-weight": 600, "border-width": 3 } },
+    { selector: "node.opened", style: { "border-style": "solid", "border-width": 2.5 } },
+    { selector: "node.done", style: { "border-style": "double", "border-width": 4 } },
+    { selector: "node.more", style: { "shape": "round-rectangle", "border-style": "dashed", "font-style": "italic", "background-image": "none" } },
+    { selector: "edge.trailedge", style: { "label": "data(rel)", "font-size": 9, "color": ink, "text-background-color": bg, "text-background-opacity": .85, "text-background-padding": 2, "text-rotation": "autorotate" } },
     { selector: ".faded", style: { "opacity": .12 } },
     { selector: "node.hl", style: { "border-width": 3, "border-color": css("--c-hl"), "border-style": "solid" } },
     { selector: "edge.hl", style: { "line-color": css("--c-hl"), "opacity": 1, "width": 2.4, "label": "data(rel)" } },
@@ -841,7 +1018,8 @@ function mindElements() {
     if (open) for (const k of kids.get(id) || []) walk(k);
   };
   for (const n of DATA.nodes) if (!n.external && (!n.parent || !byId.has(n.parent))) walk(n.id);
-  return els;
+  const root = DATA.nodes.find(n => n.cat === "tenant");
+  return els.concat(m365Elements(root && root.id));
 }
 // Radial mind map / left-to-right tree: each branch gets space in proportion to its leaves, so lines never cross.
 function treePositions() {
@@ -1017,6 +1195,164 @@ function accessElements() {
   return els;
 }
 
+// ======================================================= follow relations: double-click to grow a picture of what's connected
+// Every double-click adds what is directly related to that item: for a resource its place in the hierarchy, what it
+// contains, its network connections and who holds a role on it; for a person or group their roles, groups, members and
+// access packages; for an Entra role or access package who holds it. Keep double-clicking until nothing new appears.
+let trail = null, tapTimer = null;
+const TRAIL_CAP = 40;
+const azAt = new Map();                      // scope -> role assignments made there
+for (const a of ACC.azure) { if (!azAt.has(a.scope)) azAt.set(a.scope, []); azAt.get(a.scope).push(a); }
+function trailKeyOf(ele) {                   // the item behind a graph node, in any view
+  const kind = ele.data("kind"), ref = ele.data("ref");
+  if (trail && ele.data("tkey")) return ele.data("tkey");
+  if (kind === "principal") return "p:" + ref;
+  if (kind === "role") return "er:" + ref;
+  if (kind === "pkg") return "pkg:" + ref;
+  if (kind === "entra") return null;
+  if (["m365", "team", "site", "chan"].includes(kind)) return ref;
+  if (ref && byId.has(ref)) return "r:" + ref;
+  return null;
+}
+function trailNode(key) {                    // graph node data for an item
+  const [t, ...rest] = key.split(":"), ref = rest.join(":");
+  if (t === "r") { const n = byId.get(ref) || { name: ref, cat: "other", type: "" };
+    return { label: n.cat === "tenant" ? tenantName : n.name, cat: n.cat, ref, kind: "resource", icon: iconUri(n.cat === "mg" ? "managementgroup" : n.type, n.cat, css("--c-" + n.cat) || css("--c-other")), cls: n.external ? "external" : "" }; }
+  if (t === "p") { const p = pById.get(ref) || { name: ref, kind: "other" };
+    return { label: p.name, cat: p.kind, ref, kind: "principal", icon: iconUri(p.guest ? "guest" : p.kind, p.kind, css("--c-" + p.kind) || css("--c-other")), cls: isPriv(ref) ? "privnode" : "" }; }
+  if (t === "er") return { label: ref, cat: "role", ref, kind: "role", icon: iconUri("entra", "entra", css("--c-role")), cls: "" };
+  if (t === "pkg") return { label: (PKG.get(ref) || { name: ref }).name, cat: "pkg", ref, kind: "pkg", icon: iconUri("pkg", "pkg", css("--c-pkg")), cls: "" };
+  if (["m365", "team", "site", "chan"].includes(t)) {
+    const cat = key === "m365" ? "m365" : key === "m365:teams" ? "team" : key === "m365:sites" ? "site" : t;
+    const noOwner = t === "team" && !((teamById.get(ref) || {}).owners || []).length, anon = t === "site" && (siteById.get(ref) || {}).anonymousLinks;
+    return { label: m365Label(key), cat, ref: key, kind: t, icon: iconUri(cat, cat, css("--c-" + cat) || css("--c-other")), cls: noOwner || anon ? "privnode" : "" };
+  }
+  return { label: ref, cat: "other", ref, kind: "more", icon: iconUri("other", "other", css("--c-other")), cls: "more" };
+}
+function trailRelations(key, all) {          // [[otherKey, label, fromThis], ...] directly related to an item
+  const [t, ...rest] = key.split(":"), ref = rest.join(":"), out = [], more = { n: 0 };
+  const cap = (list, f) => { const l = all ? list : list.slice(0, TRAIL_CAP); l.forEach(f); more.n += list.length - l.length; };
+  if (t === "r") {
+    const n = byId.get(ref) || {};
+    if (n.cat === "tenant" && M365 && (TEAMS.length || SITES.length)) out.push(["m365", "contains", true]);
+    if (n.parent && byId.has(n.parent)) out.push(["r:" + n.parent, "contains", false]);
+    cap((kids.get(ref) || []).filter(k => byId.has(k)), k => out.push(["r:" + k, "contains", true]));
+    for (const e of relEdges) { if (e.s === ref) out.push(["r:" + e.t, e.rel, true]); else if (e.t === ref) out.push(["r:" + e.s, e.rel, false]); }
+    cap(azAt.get(ref) || [], a => out.push(["p:" + a.p, a.role + (jit(a) ? " (eligible)" : ""), false]));
+  } else if (t === "p") {
+    for (const a of azBy.get(ref) || []) out.push([byId.has(a.scope) ? "r:" + a.scope : "r:" + a.scope, a.role + (jit(a) ? " (eligible)" : ""), true]);
+    for (const a of enBy.get(ref) || []) out.push(["er:" + a.role, a.status === "eligible" ? "eligible" : "active", true]);
+    for (const g of memberOf.get(ref) || []) out.push(["p:" + g, "member of", true]);
+    for (const e of gEligBy.get(ref) || []) out.push(["p:" + e.g, "eligible member of", true]);
+    cap(ACC.members[ref] || [], m => out.push(["p:" + m, "member of", false]));
+    cap(gEligOf.get(ref) || [], e => out.push(["p:" + e.p, "eligible member of", false]));
+    for (const x of pkgAssignBy.get(ref) || []) out.push(["pkg:" + x.pkg, "assigned", true]);
+    for (const k of pkgOfGroup.get(ref) || []) out.push(["pkg:" + k, "grants", false]);
+    cap(teamsOf.get(ref) || [], x => out.push(["team:" + x.team, x.owner ? "owner of" : "member of", true]));
+    for (const tm of TEAMS) for (const c of tm.channels || []) if ((c.members || []).includes(ref)) out.push(["chan:" + tm.id + "|" + c.id, "member of", true]);
+    for (const [sid, o] of siteOwnerId) if (o === ref) out.push(["site:" + sid, "owner of", true]);
+  } else if (key === "m365") {
+    if (TEAMS.length) out.push(["m365:teams", "", true]);
+    if (SITES.length) out.push(["m365:sites", "", true]);
+  } else if (key === "m365:teams") {
+    cap(TEAMS, tm => out.push(["team:" + tm.id, "", true]));
+  } else if (key === "m365:sites") {
+    cap(SITES, x => out.push(["site:" + x.id, "", true]));
+  } else if (t === "team") {
+    const tm = teamById.get(ref) || {};
+    for (const u of tm.owners || []) out.push(["p:" + u, "owner of", false]);
+    cap((tm.members || []).filter(u => !(tm.owners || []).includes(u)), u => out.push(["p:" + u, "member of", false]));
+    for (const c of (tm.channels || []).filter(c => c.type !== "standard")) out.push(["chan:" + tm.id + "|" + c.id, c.type + " channel", true]);
+    for (const sid of sitesOfTeam.get(ref) || []) out.push(["site:" + sid, "site", true]);
+  } else if (t === "site") {
+    const x = siteById.get(ref) || {};
+    if (x.team) out.push(["team:" + x.team, "site", false]);
+    if (siteOwnerId.has(ref)) out.push(["p:" + siteOwnerId.get(ref), "owner of", false]);
+  } else if (t === "chan") {
+    const [tid, cid] = ref.split("|"), tm = teamById.get(tid) || {}, c = (tm.channels || []).find(c => c.id === cid) || {};
+    out.push(["team:" + tid, c.type + " channel", false]);
+    cap(c.members || [], u => out.push(["p:" + u, "member of", false]));
+    for (const sid of sitesOfTeam.get(tid) || []) { const x = siteById.get(sid); if (x && x.channelSite && x.name && c.name && x.name.toLowerCase().endsWith("-" + c.name.replace(/\s+/g, "").toLowerCase())) out.push(["site:" + sid, "site", true]); }
+  } else if (t === "er") {
+    cap(ACC.entra.filter(a => a.role === ref), a => out.push(["p:" + a.p, a.status === "eligible" ? "eligible" : "active", false]));
+  } else if (t === "pkg") {
+    for (const g of (PKG.get(ref) || {}).groups || []) out.push(["p:" + g, "grants", true]);
+    cap((ACC.packageAssignments || []).filter(x => x.pkg === ref), x => out.push(["p:" + x.p, "assigned", false]));
+  }
+  return { rel: out.filter(([k]) => k !== key), more: more.n };
+}
+function trailExpand(key, all) {
+  if (!trail.nodes.has(key)) return 0;
+  const { rel, more } = trailRelations(key, all);
+  const step = { key, nodes: [], edges: [] };
+  for (const [o, label, fromThis] of rel) {
+    if (!trail.nodes.has(o)) { trail.nodes.set(o, { from: key }); step.nodes.push(o); }
+    const [s, tt] = fromThis ? [key, o] : [o, key], id = `t:${s}>${tt}:${label}`;
+    if (!trail.edges.has(id) && !trail.edges.has(`t:${tt}>${s}:${label}`)) { trail.edges.set(id, { s, t: tt, label }); step.edges.push(id); }
+  }
+  const moreKey = "more:" + key;
+  if (more && !trail.nodes.has(moreKey)) { trail.nodes.set(moreKey, { from: key, label: `+${more} more`, parent: key }); step.nodes.push(moreKey);
+    const id = `t:${key}>${moreKey}:`; trail.edges.set(id, { s: key, t: moreKey, label: "" }); step.edges.push(id); }
+  if (all && trail.nodes.has(moreKey)) { trail.nodes.delete(moreKey); for (const [id, e] of [...trail.edges]) if (e.t === moreKey) trail.edges.delete(id); }
+  trail.opened.add(key);
+  if (!step.nodes.length) trail.done.add(key);
+  trail.steps.push(step);
+  return step.nodes.length;
+}
+function trailStart(key) {
+  trail = { root: key, nodes: new Map([[key, { from: null }]]), edges: new Map(), opened: new Set(), done: new Set(), steps: [], from: view };
+  trailExpand(key);
+  render();                                           // fits the whole start picture
+  const el = cy.getElementById(key);
+  if (el.length) highlight(el);
+  trailDetails(key);
+}
+function trailFollow(key) {
+  if (key.startsWith("more:")) { const parent = trail.nodes.get(key).parent; trail.opened.delete(parent); trailExpand(parent, true); render(true); return; }
+  if (trail.opened.has(key)) { flash(trail.done.has(key) ? "Nothing more is connected to this." : "Already shown: everything connected to this is in the picture."); return; }
+  const added = trailExpand(key);
+  render(true);
+  if (!added) flash(`Nothing new: everything connected to ${trailNode(key).label} is already shown.`);
+  focusTrail(key);
+}
+function trailBack() {
+  const step = trail && trail.steps.pop();
+  if (!step) return;
+  for (const n of step.nodes) trail.nodes.delete(n);
+  for (const e of step.edges) trail.edges.delete(e);
+  trail.opened.delete(step.key); trail.done.delete(step.key);
+  if (!trail.steps.length) { trailClose(); return; }
+  render(true);
+}
+function trailClose() { const back = trail ? trail.from : view; trail = null; view = back; render(); }
+function trailElements() {
+  const els = [];
+  for (const [key, info] of trail.nodes) {
+    const d = key.startsWith("more:") ? { label: info.label, cat: "other", ref: key, kind: "more", icon: iconUri("other", "other", css("--c-other")), cls: "more" } : trailNode(key);
+    const cls = [d.cls, key === trail.root ? "root" : "", trail.done.has(key) ? "done" : trail.opened.has(key) ? "opened" : ""].join(" ");
+    els.push({ group: "nodes", data: { id: key, tkey: key, label: d.label, cat: d.cat, ref: d.ref, kind: d.kind, icon: d.icon }, classes: cls });
+  }
+  for (const [id, e] of trail.edges) if (trail.nodes.has(e.s) && trail.nodes.has(e.t)) els.push({ group: "edges", data: { id, source: e.s, target: e.t, rel: e.label }, classes: "rel trailedge" });
+  return els;
+}
+function focusTrail(key) {
+  const el = cy.getElementById(key);
+  if (el.length) {
+    highlight(el);
+    const near = el.closedNeighborhood();               // keep what was just added in view
+    cy.animate({ fit: { eles: near, padding: 70 } }, { duration: 250, complete: () => { if (cy.zoom() > 1.3) { cy.zoom(1.3); cy.center(near); } } });
+  }
+  trailDetails(key);
+}
+function trailDetails(key) {
+  const d = trailNode(key);
+  if (d.kind === "resource") showDetails(d.ref);
+  else if (d.kind === "principal") showPrincipal(d.ref);
+  else if (d.kind === "role") showRole(d.ref);
+  else if (d.kind === "pkg") showPackage(d.ref);
+  else if (["m365", "team", "site", "chan"].includes(d.kind)) showM365(key);
+}
+
 // ======================================================= rendering
 function layoutOpts() {
   if (view === "topo") return { name: "cose", animate: false, randomize: true, nodeRepulsion: () => 8000,
@@ -1025,22 +1361,35 @@ function layoutOpts() {
     gravity: 0.5, componentSpacing: 80, padding: 30, nodeDimensionsIncludeLabels: cy.nodes(":visible").length <= 400 };
   return { name: "preset", positions: treePositions(), fit: false, animate: false, padding: 30 };
 }
+const trailPos = new Map();
 function render(keepView) {
   const vp = keepView ? { zoom: cy.zoom(), pan: Object.assign({}, cy.pan()) } : null;
   const oldPos = new Map();
   if (keepView && view === "topo") cy.nodes().forEach(n => oldPos.set(n.id(), Object.assign({}, n.position())));
   cy.startBatch();
   cy.elements().remove();
-  cy.add(view === "mind" ? mindElements() : view === "topo" ? topoElements() : accessElements());
-  if (view === "mind" && shape === "tree") cy.nodes().addClass("lr");
-  if (view === "mind" && shape === "tree") cy.edges().addClass("taxi");
+  cy.add(trail ? trailElements() : view === "mind" ? mindElements() : view === "topo" ? topoElements() : accessElements());
+  if (!trail && view === "mind" && shape === "tree") cy.nodes().addClass("lr");
+  if (!trail && view === "mind" && shape === "tree") cy.edges().addClass("taxi");
   cy.endBatch();
   applyFilters();
   updateWarn();
   $("expand").style.display = view === "mind" && !AUTO_EXPAND ? "" : "none";
   $("shape-seg").style.display = view === "mind" ? "" : "none";
   $("filters").style.display = view === "access" ? "none" : "";
+  $("filters").querySelectorAll("[data-branch-l]").forEach(l => l.style.display = view === "topo" && !trail ? "none" : "");
   $("q").placeholder = view === "access" ? "Search people, groups, apps…" : "Search name, type, IP prefix…";
+  cy.resize();                                     // the bar above the map may have changed its height
+  if (trail) {                                     // grow around what's already there
+    if (keepView) for (const [k, p] of trailPos) { const n = cy.getElementById(k); if (n.length) n.position(p); }
+    cy.nodes().forEach(n => { if (!trailPos.has(n.id())) { const from = (trail.nodes.get(n.id()) || {}).from, p = from && trailPos.get(from);
+      if (p) n.position({ x: p.x + Math.random() * 120 - 60, y: p.y + Math.random() * 120 - 60 }); } });
+    cy.elements().layout({ name: "cose", animate: false, randomize: !keepView, fit: false, numIter: 600, nodeRepulsion: () => 9000,
+      idealEdgeLength: () => 90, gravity: 0.6, padding: 30, nodeDimensionsIncludeLabels: true }).run();
+    trailPos.clear(); cy.nodes().forEach(n => trailPos.set(n.id(), Object.assign({}, n.position())));
+    if (!keepView) fitAll(); else { cy.zoom(vp.zoom); cy.pan(vp.pan); }
+    return;
+  }
   if (oldPos.size) {                               // topology drill-down: keep the map where it was
     cy.nodes().forEach(n => {
       const p = oldPos.get(n.id()) || oldPos.get(anchors.get(n.id()));
@@ -1240,6 +1589,7 @@ $("panel").addEventListener("click", e => {
   const go = t.closest("[data-go]"); if (go) { if (view === "access") setView("mind"); focusNode(go.dataset.go); }
 });
 function focusNode(id) {
+  if (view === "mind" && !trail && hiddenBranches.has("azure") && byId.has(id) && byId.get(id).cat !== "tenant") { showBranch("azure"); render(true); }
   let el = cy.getElementById(id);
   if (!el.length && view === "mind") { let p = byId.get(id); while (p && p.cat !== "rg") p = byId.get(p.parent); if (p) { expanded.add(p.id); render(true); el = cy.getElementById(id); } }
   if (!el.length && view === "topo" && anchors.has(id)) { openSubnets.add(anchors.get(id)); render(true); el = cy.getElementById(id); }
@@ -1257,6 +1607,7 @@ function highlight(el) {
 }
 cy.on("tap", "node", e => {
   const n = e.target, ref = n.data("ref");
+  if (trail) { highlight(n); if (n.data("kind") !== "more") trailDetails(n.data("tkey")); return; }
   if (view === "access") {
     const k = n.data("kind");
     if (k === "principal") { if (ref !== selectedP) { selectedP = ref; render(); } return; }
@@ -1266,13 +1617,32 @@ cy.on("tap", "node", e => {
     if (k === "role") showRole(ref); else showDetails(ref);
     return;
   }
+  clearTimeout(tapTimer);
+  const mk = n.data("kind");
+  if (["m365", "team", "site", "chan"].includes(mk)) {
+    const branch = ref === "m365:teams" || ref === "m365:sites" || (mk === "team" && (teamById.get(ref.slice(5)) || {}).channels && teamById.get(ref.slice(5)).channels.some(c => c.type !== "standard"));
+    if (branch) tapTimer = setTimeout(() => { expanded.has(ref) ? expanded.delete(ref) : expanded.add(ref); render(true); highlight(cy.getElementById(ref)); }, 280);
+    else highlight(n);
+    showM365(ref);
+    return;
+  }
   const d = byId.get(ref);
-  if (view === "mind" && d.cat === "rg" && !AUTO_EXPAND) { expanded.has(d.id) ? expanded.delete(d.id) : expanded.add(d.id); render(true); highlight(cy.getElementById(d.id)); }
-  else if (view === "topo" && topoCompact && d.cat === "subnet") { openSubnets.has(d.id) ? openSubnets.delete(d.id) : openSubnets.add(d.id); render(true); highlight(cy.getElementById(d.id)); }
+  if (view === "mind" && d.cat === "rg" && !AUTO_EXPAND) tapTimer = setTimeout(() => { expanded.has(d.id) ? expanded.delete(d.id) : expanded.add(d.id); render(true); highlight(cy.getElementById(d.id)); }, 280);
+  else if (view === "topo" && topoCompact && d.cat === "subnet") tapTimer = setTimeout(() => { openSubnets.has(d.id) ? openSubnets.delete(d.id) : openSubnets.add(d.id); render(true); highlight(cy.getElementById(d.id)); }, 280);
   else highlight(n);
   showDetails(ref);
 });
 cy.on("tap", e => { if (e.target === cy) highlight(null); });
+cy.on("dbltap", "node", e => {                   // follow relations, one double-click at a time
+  clearTimeout(tapTimer);
+  const key = trailKeyOf(e.target);
+  if (!key) return;
+  trail ? trailFollow(key) : trailStart(key);
+});
+$("warn").addEventListener("click", e => {
+  if (e.target.closest("#trail-back")) trailBack();
+  else if (e.target.closest("#trail-close")) trailClose();
+});
 
 // ======================================================= search
 let qTimer;
@@ -1303,6 +1673,7 @@ $("q").addEventListener("keydown", e => {
 // ======================================================= toolbar
 function segOn(id) { for (const b of document.querySelectorAll(`#${id}`)[0].parentElement.children) b.classList.toggle("on", b.id === id); }
 function setView(v) {
+  trail = null;
   if (!viewAllowed(v)) { flash(`Your TenantWise role doesn't include ${FEATURE_LABEL[VIEW_FEATURE[v]] || "this view"}. Ask a TenantWise administrator.`); return; }
   view = v; segOn("v-" + v);
   const rep = ["find", "changes", "audit", "apps", "tenants", "roles"].includes(v);
@@ -1346,11 +1717,17 @@ $("png").onclick = () => {
 
 // ======================================================= audit scope and control mapping (ISO/IEC 27001:2022, SOX ITGC)
 const AUDIT = Object.assign({ inScope: [], production: [] }, (APP && APP.auditSettings) || {});
+const M365_REVIEW = [["owners", "Team owners", true], ["guests", "Guests and people from other organizations in teams and channels", true],
+  ["members", "All other team and channel members", false], ["sites", "Owners of SharePoint sites that don't belong to a team", true]];
+AUDIT.m365 = Object.assign(Object.fromEntries(M365_REVIEW.map(([k, , d]) => [k, d])), AUDIT.m365 || {});
+const hasM365 = () => !!(M365 && (TEAMS.length || SITES.length));
+const m365ReviewText = opts => { opts = opts === undefined ? AUDIT.m365 : opts; const on = !opts ? [] : M365_REVIEW.filter(([k]) => opts[k]).map(([, l]) => l.charAt(0).toLowerCase() + l.slice(1)); return hasM365() && on.length ? "; Microsoft 365: " + on.join(", ") : ""; };
 const PROD_RE = /(^|[^a-z])(prod|prd|production)([^a-z]|$)/i, NONPROD_RE = /non-?prod|pre-?prod|(^|[^a-z])(dev|test|qa|uat|sandbox|stage|staging)([^a-z]|$)/i;
 const SUBS = DATA.nodes.filter(n => n.cat === "sub");
-function inAuditScope(sc) {                  // a scope counts when it is, contains or sits inside an in-scope subscription
-  if (!AUDIT.inScope.length) return true;
-  const set = new Set(AUDIT.inScope);
+function inAuditScope(sc, list) {            // a scope counts when it is, contains or sits inside an in-scope subscription
+  const l = list || AUDIT.inScope;
+  if (!l.length) return true;
+  const set = new Set(l);
   return ancestors(sc).some(a => set.has(a)) || [...(subsUnder.get(sc) || [])].some(s => set.has(s));
 }
 function detectedProd(sub) {
@@ -1382,8 +1759,9 @@ const REPORT_DEFS = [
   ["Apps", "Microsoft Graph: applications, servicePrincipals, appRoleAssignedTo", "App registrations with secrets, certificates and owners; Microsoft Graph application permissions"],
   ["Access packages and PIM for Groups", "Microsoft Graph: identityGovernance", "Packages, assignments, pending requests and group eligibility (when licensed and permitted)"],
   ["Policies", "Azure Resource Graph: policyresources; Microsoft Graph: conditionalAccess policies", "Policy assignments and compliance; Conditional Access policies"],
+  ["Teams and SharePoint sites", "Microsoft Graph: groups provisioned as teams with owners and members, teams/channels and channel members; reports/getSharePointSiteUsageDetail (last 30 days)", "Every team with owners, members and guests; private and shared channels with their members; every SharePoint site in the usage report with owner, activity, storage, sharing setting and link counts (not file-level sharing or SharePoint permission groups)"],
   ["Findings", "Computed by TenantWise from the parts above", "Rules and thresholds as set under Settings at the time of the report"],
-  ["Access review", "Computed by TenantWise", "Entra admin roles and Azure access in the audit scope (all subscriptions when none is set)"]];
+  ["Access review", "Computed by TenantWise", "Entra admin roles and Azure access in the audit scope (all subscriptions when none is set), and the Teams and SharePoint access chosen under Audit scope"]];
 const CONTROLS = {
   priv: { name: "Privileged access", iso: "A.8.2 Privileged access rights", sox: "Access to programs and data: privileged access" },
   access: { name: "Access rights and reviews", iso: "A.5.15 Access control, A.5.18 Access rights", sox: "Access to programs and data: provisioning and periodic review" },
@@ -1691,6 +2069,43 @@ function computeFindings() {
     add("low", "Apps", "Apps with a single owner", "One person away means nobody can renew the app's credentials in time.",
       "Add a second owner.", AR.filter(r => r.owners.length === 1 && r.creds.length && !r.ownersLeft.length).map(r => appItem(r, "owner: " + pName(r.owners[0]))), "continuity");
   }
+  // ---------- Microsoft 365: teams and SharePoint sites
+  if (M365) {
+    const tItem = (t, sub) => ({ m: "team:" + t.id, label: t.name, sub });
+    add("medium", "Microsoft 365", "Teams without an owner",
+      "Nobody can manage members, guests or settings of these teams, and nobody answers access reviews for them.",
+      "Assign at least two owners; Microsoft 365 group ownership governance can prompt for this automatically.",
+      TEAMS.filter(t => !(t.owners || []).length).map(t => tItem(t, `${(t.members || []).length} members${t.guests ? ", " + t.guests + " guests" : ""}`)), "continuity");
+    add("low", "Microsoft 365", "Teams with only one owner",
+      "If that person leaves or is away, nobody can add or remove members or guests.",
+      "Add a second owner, ideally a deputy from the same department.",
+      TEAMS.filter(t => (t.owners || []).length === 1).map(t => tItem(t, "owner: " + pName(t.owners[0]))), "continuity");
+    add("low", "Microsoft 365", "Teams with guests",
+      "Guests can read the team's chats and files. ISO 27001 and supplier contracts expect someone to confirm they still need it.",
+      "Review the guests with the team owner regularly; Entra access reviews for Microsoft 365 groups can do this every quarter.",
+      TEAMS.filter(t => t.guests).map(t => tItem(t, `${t.guests} guest${t.guests === 1 ? "" : "s"}`)), "suppliers");
+    add("low", "Microsoft 365", "Public teams",
+      "Anyone in the organization can join a public team and read its files, without an owner approving it.",
+      "Make teams with confidential content private; keep public only what everybody may read.",
+      TEAMS.filter(t => t.visibility === "public").map(t => tItem(t, `${(t.members || []).length} members`)), "access");
+    add("info", "Microsoft 365", "Shared channels",
+      "Shared channels can include people from other teams and other organizations, who aren't members of the team.",
+      "Check who the channels are shared with and whether cross-tenant access settings allow it.",
+      TEAMS.flatMap(t => (t.channels || []).filter(c => c.type === "shared").map(c => ({ m: "chan:" + t.id + "|" + c.id, label: c.name, sub: `${t.name} · ${(c.members || []).length} members` }))), "suppliers");
+    add("medium", "Microsoft 365", "SharePoint sites with \"Anyone\" links",
+      "Files behind an \"Anyone\" link open for whoever has the link, without signing in, and can't be traced to a person.",
+      "Remove the links, limit sharing to people in the organization or specific people, and set an expiry for links in the SharePoint admin center.",
+      SITES.filter(x => x.anonymousLinks).map(x => ({ m: "site:" + x.id, label: x.name, sub: `${x.anonymousLinks} link${x.anonymousLinks === 1 ? "" : "s"}` })), "access");
+    const staleSite = 180;
+    add("low", "Microsoft 365", `SharePoint sites without activity for ${staleSite} days`,
+      "Unused sites still hold data and permissions; nobody notices if they're shared wrongly.",
+      "Confirm with the owner, then archive or delete; Microsoft 365 retention keeps what must be kept.",
+      SITES.filter(x => siteDays(x) != null && siteDays(x) > staleSite).map(x => ({ m: "site:" + x.id, label: x.name, sub: `last activity ${fmtDate(x.lastActivity)}` })), "assets");
+    if (M365.concealed) add("info", "Microsoft 365", "SharePoint site names are concealed in reports",
+      "Microsoft 365 replaces site names in usage reports with codes, so TenantWise can't name sites or link them to teams.",
+      "Microsoft 365 admin center → Settings → Org settings → Reports: turn off \"Display concealed user, group, and site names in all reports\" (an admin decision for privacy reasons).",
+      [{ label: "All SharePoint sites" }], "assets");
+  }
   for (const f of F) f.ctl = f.ctl || ctlOf(f.title);
   F.sort((a, b) => SEV.indexOf(a.sev) - SEV.indexOf(b.sev));
   return (findingsCache = F);
@@ -1712,6 +2127,7 @@ function landingZoneChecks() {               // loose match against the Azure la
 }
 function findingItem(i) {
   const label = i.p ? `<a data-p="${esc(i.p)}">${esc(i.label)}</a>` : i.app ? `<a data-app="${esc(i.app)}">${esc(i.label)}</a>` : i.pkg ? `<a data-pkg="${esc(i.pkg)}">${esc(i.label)}</a>` :
+    i.m ? `<a data-m="${esc(i.m)}">${esc(i.label)}</a>` :
     i.go && (byId.has(i.go) || i.go === "tenant") ? `<a data-go="${esc(i.go)}">${esc(i.label)}</a>` : esc(i.label);
   return `<li>${label}${i.sub ? `<span class="rel">${esc(i.sub)}</span>` : ""}</li>`;
 }
@@ -1780,8 +2196,17 @@ async function sha256(text) {
     return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
   } catch (err) { return ""; }
 }
-function reviewPopulation() {                // what the review covers: Entra roles, and Azure access to in-scope subscriptions
-  return accessRegister().filter(r => r.plane === "Entra" || r.inScope === "Yes");
+// the review's scope: as set under Audit scope, or as it was when the review was signed (older signed reviews kept no
+// scope: they covered the subscriptions in scope and no Microsoft 365)
+function reviewScope() {
+  const so = review.signedOff;
+  if (so && so.scope) return { inScope: so.scope.inScope || [], m365: so.scope.m365 || null };
+  return { inScope: AUDIT.inScope, m365: so ? null : AUDIT.m365 };
+}
+function reviewPopulation() {                // what the review covers: Entra roles, Azure access to in-scope subscriptions, chosen Microsoft 365 access
+  const sc = reviewScope();
+  return accessRegister().filter(r => r.plane === "Entra" || (r.plane === "Azure" && inAuditScope(r.scopeId, sc.inScope)))
+    .concat(sc.m365 ? m365Rows(sc.m365).filter(r => r.inScope === "Yes") : []);
 }
 function controlRows() {
   const F = computeFindings(), pv = DATA.meta.provenance || {};
@@ -1795,7 +2220,7 @@ function controlRows() {
       if (!review.signedOff) { ok = false; result = (ex ? result + ", " : "") + "review open"; }
     }
     if (k === "change") {
-      evidence = lastDiff ? `Compared with ${compareLabel}: ${lastDiff.azure.added.length + lastDiff.azure.removed.length + lastDiff.entra.added.length + lastDiff.entra.removed.length + lastDiff.members.length} access changes, ${lastDiff.resources.added.length + lastDiff.resources.removed.length} resource changes`
+      evidence = lastDiff ? `Compared with ${compareLabel}: ${lastDiff.azure.added.length + lastDiff.azure.removed.length + lastDiff.entra.added.length + lastDiff.entra.removed.length + lastDiff.members.length + (lastDiff.m365 ? lastDiff.m365.access.added.length + lastDiff.m365.access.removed.length : 0)} access changes, ${lastDiff.resources.added.length + lastDiff.resources.removed.length} resource changes`
         : "Not compared yet: open Changes and pick an earlier scan";
       result = lastDiff ? "Changes listed" : "Not run"; ok = !!lastDiff;
     }
@@ -1817,7 +2242,9 @@ function auditScopeHtml() {
     <div class="body"><p class="hint">Tick the subscriptions in scope of the audit (for SOX: those that run financially relevant systems). The access review and the report cover Azure access to these, plus all Entra admin roles. Nothing ticked means everything is in scope.
     Production is ${AUDIT.production.length ? "set by you" : "detected from names and environment tags until you change it"}; it drives the segregation-of-duties check.</p>
     <table class="grid"><thead><tr><th>Subscription</th><th>In scope</th><th>Production</th></tr></thead><tbody>${rows}</tbody></table>
-    <p><button class="btn" id="scope-all">Clear scope (all in scope)</button></p></div></details>`;
+    <p><button class="btn" id="scope-all">Clear scope (all in scope)</button></p>
+    ${hasM365() ? `<h4>Microsoft 365</h4><p class="hint">Which Teams and SharePoint access the review covers. Everything is listed in the access export either way.</p><div class="opts">${M365_REVIEW.map(([k, l]) =>
+      `<label class="opt"><input type="checkbox" data-m365opt="${k}" ${AUDIT.m365[k] ? "checked" : ""}> ${esc(l)}</label>`).join("")}</div>` : ""}</div></details>`;
 }
 function reviewHtml() {
   const pop = reviewPopulation(), D = review.decisions;
@@ -1832,6 +2259,7 @@ function reviewHtml() {
     if (reviewFilter === "remove" && d !== "remove") continue;
     if (reviewFilter === "question" && d !== "question") continue;
     if (reviewFilter === "priv" && !r.priv) continue;
+    if (reviewFilter === "m365" && r.plane !== "Microsoft 365") continue;
     if (q && !(r.name + " " + r.upn + " " + r.role + " " + r.scope).toLowerCase().includes(q)) continue;
     if (!byP.has(r.id)) byP.set(r.id, []);
     byP.get(r.id).push(r);
@@ -1840,19 +2268,20 @@ function reviewHtml() {
   reviewPage = Math.min(reviewPage, pages - 1);
   const cards = ids.slice(reviewPage * per, reviewPage * per + per).map(pid => {
     const rows = byP.get(pid), p = pById.get(pid) || {}, r0 = rows[0];
-    const flags = (p.guest ? '<span class="tag">guest</span>' : "") + (p.disabled ? '<span class="tag priv">disabled</span>' : "") +
+    const flags = (p.disabled ? '<span class="tag priv">disabled</span>' : "") +
       (r0.lastSignIn ? `<span class="tag">last sign-in ${r0.lastSignIn === "never" ? "never" : fmtDate(r0.lastSignIn)}</span>` : "") + (isPriv(pid) ? '<span class="tag priv">privileged</span>' : "");
     const lines = rows.map(r => {
       const k = rkey(r), d = D[k];
       const how = [r.pkg && "package " + r.pkg, r.group && (r.pimGroup ? "eligible member of " : "member of ") + r.group, r.status !== "Active" && r.status, r.until && "until " + r.until].filter(Boolean).join(" · ");
-      return `<tr><td><b>${esc(r.role)}</b>${r.priv ? '<span class="tag priv">privileged</span>' : ""}<span class="rel">${esc(r.plane === "Azure" ? r.scope + " (" + r.scopeType + ")" : "Entra directory")}${r.prod === "Yes" ? " · production" : ""}</span></td>
+      return `<tr><td><b>${esc(r.role)}</b>${r.priv ? '<span class="tag priv">privileged</span>' : ""}<span class="rel">${esc(r.plane === "Entra" ? "Entra directory" : r.scope + " (" + r.scopeType + ")")}${r.prod === "Yes" ? " · production" : ""}</span></td>
         <td><span class="rel">${esc(how || "direct")}</span></td>
         <td class="decide">${DECISIONS.map(([v, l]) => `<button data-dec="${v}" data-k="${esc(k)}" class="${d === v ? "on " + v : ""}" ${signed ? "disabled" : ""}>${l}</button>`).join("")}
         ${d === "remove" || d === "question" || review.comments[k] ? `<input class="cmt" data-c="${esc(k)}" placeholder="${d === "remove" ? "Why / ticket" : "Question for the owner"}" value="${esc(review.comments[k] || "")}" ${signed ? "disabled" : ""}>` : ""}</td></tr>`;
     }).join("");
     return `<div class="rv"><div class="rvh"><div>${pLink(pid, flags)}</div>${signed ? "" : `<button class="btn small" data-keepall="${esc(pid)}">Keep all</button>`}</div><table class="grid">${lines}</table></div>`;
   }).join("");
-  const chips = [["open", "To decide"], ["all", "All"], ["priv", "Privileged"], ["remove", "Remove"], ["question", "Ask"]]
+  if (reviewFilter === "m365" && !pop.some(r => r.plane === "Microsoft 365")) reviewFilter = "open";
+  const chips = [["open", "To decide"], ["all", "All"], ["priv", "Privileged"], ...(pop.some(r => r.plane === "Microsoft 365") ? [["m365", "Teams & SharePoint"]] : []), ["remove", "Remove"], ["question", "Ask"]]
     .map(([k, l]) => `<button data-rf="${k}" class="${reviewFilter === k ? "on" : ""}">${l}</button>`).join("");
   const pct = pop.length ? Math.round(100 * decided / pop.length) : 100;
   return `<details class="finding" open><summary><span class="sev ${signed ? "info" : "medium"}">${signed ? "signed" : "review"}</span><span><b>Access review</b> <span class="tag">${esc(CONTROLS.access.iso)}</span></span><span class="n">${decided}/${pop.length}</span></summary>
@@ -1860,7 +2289,7 @@ function reviewHtml() {
     ${signed ? `<p class="blast calm"><b>Signed off</b> by ${esc(signed.reviewer)}${signed.onBehalfOf ? " for " + esc(signed.onBehalfOf) : ""}${signed.selfReviewed ? ` (self-review: ${esc(signed.selfReviewed)} of the entries are the reviewer's own)` : ""} on ${esc(new Date(signed.time).toLocaleString())}: ${esc(signed.summary)}.${signed.evidenceSha256 ? ` Evidence SHA-256 <code>${esc(signed.evidenceSha256)}</code>.` : ""}</p>`
       : `<p class="hint">Decide for every access whether it is still needed. <b>Keep</b> confirms it, <b>Remove</b> marks it for removal (add the reason or ticket), <b>Ask</b> flags it for the owner. Decisions are saved as you go${host ? ", encrypted on this PC" : " in this window only"}. Sign off once everything is decided: TenantWise saves the signed review as evidence.</p>`}
     <div class="meter"><div style="width:${pct}%"></div></div>
-    <p class="hint">${decided} of ${pop.length} decided · ${removes} to remove · ${asks} to ask · population: Entra admin roles and Azure access ${AUDIT.inScope.length ? "to " + AUDIT.inScope.length + " in-scope subscription(s)" : "to all subscriptions"}</p>
+    <p class="hint">${decided} of ${pop.length} decided · ${removes} to remove · ${asks} to ask · population: Entra admin roles and Azure access ${reviewScope().inScope.length ? "to " + reviewScope().inScope.length + " in-scope subscription(s)" : "to all subscriptions"}${esc(m365ReviewText(reviewScope().m365))}${signed ? " (as when it was signed)" : ""}</p>
     <div class="toolbar"><div class="chips">${chips}</div><input type="search" id="rq" placeholder="Search people, roles, scopes…" value="${esc(reviewQuery)}"></div>
     ${cards || `<p class="hint">${reviewFilter === "open" ? "Everything is decided." : "Nothing matches."}</p>`}
     ${pages > 1 ? `<p class="toolbar"><button class="btn small" data-pg="-1" ${reviewPage ? "" : "disabled"}>← Previous</button> <span class="hint">Page ${reviewPage + 1} of ${pages} · ${ids.length} people</span> <button class="btn small" data-pg="1" ${reviewPage < pages - 1 ? "" : "disabled"}>Next →</button></p>` : ""}
@@ -1895,7 +2324,7 @@ function renderAudit() {
       ${fact("Tool", esc(pv.tool || "TenantWise"))}
       ${fact("Method", "Read-only: " + esc((pv.sources || ["Azure Resource Graph", "Azure Resource Manager", "Microsoft Graph"]).join(", ")) + (pv.requests ? `<span class="rel">${pv.requests.resourceGraphQueries} Resource Graph queries, ${pv.requests.armCalls} ARM and ${pv.requests.graphCalls} Graph requests</span>` : ""))}
       ${fact("Completeness", notes.length ? `${notes.length} part(s) could not be read; listed in the report under scan notes` : "Everything the account can see was read")}
-      ${fact("Population", `${resCount} resources · ${ACC.principals.length} identities · ${ACC.azure.length} Azure and ${ACC.entra.length} Entra role assignments`)}
+      ${fact("Population", `${resCount} resources · ${ACC.principals.length} identities · ${ACC.azure.length} Azure and ${ACC.entra.length} Entra role assignments${hasM365() ? ` · ${TEAMS.length} teams · ${SITES.length} SharePoint sites` : ""}`)}
       ${fact("Scan fingerprint", APP && APP.scanSha256 ? `SHA-256 <code>${esc(APP.scanSha256)}</code>` : "")}
       ${fact("Storage", APP && APP.protectedAtRest ? "Encrypted on this PC for your Windows account and shown from memory; nothing leaves the PC" : "")}
     </dl></div></details>
@@ -1949,7 +2378,8 @@ async function signOffSave(pop, name, time, summary, csv, popSha, html, own) {
   const saved = await saveFile(`tenantwise-access-review_${stamp()}.html`, html, "text/html", "access-review");
   if (!saved || saved.cancelled) return;
   await saveFile(`tenantwise-access-review_${stamp()}.csv`, csv, "text/csv", "access-review-csv");
-  review.signedOff = { reviewer: name, time, summary, evidenceSha256: saved.sha256 || (await sha256(html)), populationSha256: popSha, scanSha256: (APP && APP.scanSha256) || "", selfReviewed: own };
+  review.signedOff = { reviewer: name, time, summary, evidenceSha256: saved.sha256 || (await sha256(html)), populationSha256: popSha, scanSha256: (APP && APP.scanSha256) || "", selfReviewed: own,
+    scope: { inScope: [...AUDIT.inScope], m365: hasM365() ? Object.assign({}, AUDIT.m365) : null } };
   if (host) {                                                   // the app records the signed-in account and its own time
     const r = await call("saveReview", { review }).catch(err => { flash(err.message); return null; });
     if (!r || !r.signedOff) { delete review.signedOff; renderAudit(); return; }   // not signed: nothing changed in the app
@@ -1972,12 +2402,12 @@ function reviewEvidenceHtml(pop, name, time, summary, popSha, own) {
 <p class="meta">ISO/IEC 27001:2022 ${esc(CONTROLS.access.iso)} · SOX ITGC: ${esc(CONTROLS.access.sox)}</p>
 ${t(["", ""], [["Reviewer", name], ["Signed off", new Date(time).toLocaleString() + " (" + time + ")"], ["Result", summary],
   ["Reviewer independence", own ? `Self-review: the reviewer holds ${own} of the ${pop.length} access entries reviewed` : "The reviewer holds none of the access reviewed"],
-  ["Population", `${pop.length} access entries: Entra admin roles and Azure access ${AUDIT.inScope.length ? "to in-scope subscriptions: " + AUDIT.inScope.map(scopeName).join(", ") : "to all subscriptions"}`],
+  ["Population", `${pop.length} access entries: Entra admin roles and Azure access ${reviewScope().inScope.length ? "to in-scope subscriptions: " + reviewScope().inScope.map(scopeName).join(", ") : "to all subscriptions"}${m365ReviewText(reviewScope().m365)}`],
   ["Data as of", `Scan of ${new Date(DATA.meta.generated).toLocaleString()} by ${(DATA.meta.provenance || {}).account || "—"} with ${(DATA.meta.provenance || {}).tool || "TenantWise"}`],
   ["Scan fingerprint", (APP && APP.scanSha256) ? "SHA-256 " + APP.scanSha256 : "—"], ["Population file", "SHA-256 " + popSha + " (the CSV saved with this review)"]], "kv")}
 <p class="note">Statement: "${esc(name)}" confirmed reviewing every access listed and that the decisions are theirs. Confidential: names everyone with access.</p>
-<h2>Follow-up: remove or ask (${act.length})</h2>${act.length ? t(["Decision", "Comment", "Identity", "UPN", "Role", "Scope", "Via"], act.map(r => [label(r), review.comments[rkey(r)] || "", r.name, r.upn, r.role, r.plane === "Azure" ? r.scope : "Entra directory", [r.pkg, r.group].filter(Boolean).join(" / ")])) : "<p>None: all access confirmed.</p>"}
-<h2>All decisions (${pop.length})</h2>${t(["Decision", "Identity", "UPN", "Role", "Scope", "Status", "Ends", "Via"], pop.map(r => [label(r), r.name, r.upn, r.role, r.plane === "Azure" ? `${r.scope} (${r.scopeType})` : "Entra directory", r.status, r.until, [r.pkg, r.group].filter(Boolean).join(" / ")]))}
+<h2>Follow-up: remove or ask (${act.length})</h2>${act.length ? t(["Decision", "Comment", "Identity", "UPN", "Role", "Scope", "Via"], act.map(r => [label(r), review.comments[rkey(r)] || "", r.name, r.upn, r.role, r.plane === "Entra" ? "Entra directory" : r.scope, [r.pkg, r.group].filter(Boolean).join(" / ")])) : "<p>None: all access confirmed.</p>"}
+<h2>All decisions (${pop.length})</h2>${t(["Decision", "Identity", "UPN", "Role", "Scope", "Status", "Ends", "Via"], pop.map(r => [label(r), r.name, r.upn, r.role, r.plane === "Entra" ? "Entra directory" : `${r.scope} (${r.scopeType})`, r.status, r.until, [r.pkg, r.group].filter(Boolean).join(" / ")]))}
 <p class="meta">Made with TenantWise (${PROJECT_URL}). Check a file against the app's activity log with Get-FileHash.</p></body></html>`;
 }
 $("report").addEventListener("click", e => {
@@ -2014,6 +2444,8 @@ $("report").addEventListener("change", e => {
     AUDIT.production = t.checked ? [...new Set([...AUDIT.production, t.dataset.prod])] : AUDIT.production.filter(x => x !== t.dataset.prod);
     if (!AUDIT.production.length) AUDIT.production = ["none"];                                             // explicit "no production"
     saveAuditSettings(); renderAuditKeepScroll();
+  } else if (t.dataset.m365opt) {
+    AUDIT.m365[t.dataset.m365opt] = t.checked; saveAuditSettings(); renderAuditKeepScroll();
   } else if (t.dataset.c) { review.comments[t.dataset.c] = t.value; saveReviewDraft(); }
   else if (t.id === "rv-name") reviewer = t.value;
 });
@@ -2053,8 +2485,20 @@ function diffScans(A, B) {
     for (const m of o) if (!ns.has(m)) members.push({ g, m, added: false });
   }
   const oldPol = new Map((AA.policies || []).map(p => [p.id, p]));
+  // Microsoft 365: only when both scans read it (older scans didn't)
+  const AM = A.m365, BM = B.m365;
+  const tAccess = M => (M.teams || []).flatMap(t => [...(t.owners || []).map(u => ({ t: t.id, name: t.name, u, role: "owner" })),
+    ...(t.members || []).filter(u => !(t.owners || []).includes(u)).map(u => ({ t: t.id, name: t.name, u, role: "member" }))]);
+  const oldTeams = new Map(((AM && AM.teams) || []).map(t => [t.id, t]));
+  const m365 = AM && BM ? {
+    oldPeople: AM.people || {},
+    teams: d(AM.teams, BM.teams, t => t.id), sites: d(AM.sites, BM.sites, x => x.id || x.url),
+    access: d(tAccess(AM), tAccess(BM), x => `${x.t}|${x.u}|${x.role}`),
+    visibility: (BM.teams || []).filter(t => oldTeams.has(t.id) && (oldTeams.get(t.id).visibility || "") !== (t.visibility || "")).map(t => ({ t, from: oldTeams.get(t.id).visibility })),
+    anyone: (BM.sites || []).filter(x => x.anonymousLinks && !((AM.sites || []).find(o => (o.id || o.url) === (x.id || x.url)) || {}).anonymousLinks),
+  } : null;
   return {
-    A, oldNodes, oldP, members,
+    A, oldNodes, oldP, members, m365,
     resources: d((A.nodes || []).filter(isResource), B.nodes.filter(isResource), n => n.id),
     scopes: d((A.nodes || []).filter(n => HIER.has(n.cat)), B.nodes.filter(n => HIER.has(n.cat)), n => n.id),
     moved: B.nodes.filter(n => HIER.has(n.cat) && oldNodes.has(n.id) && (oldNodes.get(n.id).parent || "") !== (n.parent || "")).map(n => ({ n, from: oldNodes.get(n.id).parent })),
@@ -2068,7 +2512,7 @@ function diffScans(A, B) {
 }
 function diffHtml(D) {
   const nm = id => (byId.get(id) || D.oldNodes.get(id) || { name: id.split("/").pop() }).name;
-  const pn = id => (pById.get(id) || D.oldP.get(id) || { name: id }).name;
+  const pn = id => (pById.get(id) || (PREFS.mask ? { name: "Former user" } : D.oldP.get(id)) || { name: id }).name;
   const pl = id => pById.has(id) ? `<a data-p="${esc(id)}">${esc(pn(id))}</a>` : esc(pn(id));
   const nl = id => byId.has(id) ? `<a data-go="${esc(id)}">${esc(nm(id))}</a>` : esc(nm(id));
   const sn = sc => sc === "tenant" ? esc(tenantName) : nl(sc);
@@ -2081,7 +2525,10 @@ function diffHtml(D) {
       (added.length > L || removed.length > L ? `<p class="hint">Showing the first ${L} of each.</p>` : "");
   };
   const role = a => `${pl(a.p)} — <b>${esc(a.role)}</b>${a.priv ? '<span class="tag priv">privileged</span>' : ""}${a.status === "eligible" ? '<span class="tag">eligible</span>' : ""}`;
-  const accessCount = D.azure.added.length + D.azure.removed.length + D.entra.added.length + D.entra.removed.length + D.members.length + D.packages.added.length + D.packages.removed.length;
+  const M = D.m365, m365Count = M ? M.access.added.length + M.access.removed.length : 0;
+  const accessCount = D.azure.added.length + D.azure.removed.length + D.entra.added.length + D.entra.removed.length + D.members.length + D.packages.added.length + D.packages.removed.length + m365Count;
+  const mp = id => pById.has(id) ? pl(id) : esc(PREFS.mask ? "Former user" : (M && M.oldPeople[id] && M.oldPeople[id].name) || pn(id));
+  const tl = (id, name) => teamById.has(id) ? `<a data-m="team:${esc(id)}">${esc(name)}</a>` : esc(name);
   const html =
     `<p class="hint">Compared with ${esc(compareLabel || "an earlier scan")} (scanned ${esc(new Date(D.A.meta.generated).toLocaleString())}).</p>` +
     `<div class="summary"><div><b>${accessCount}</b>access changes</div><div><b>+${D.resources.added.length} −${D.resources.removed.length}</b>resources</div>` +
@@ -2091,6 +2538,13 @@ function diffHtml(D) {
     sec("Entra roles", D.entra.added, D.entra.removed, role) +
     sec("Group membership", D.members.filter(x => x.added), D.members.filter(x => !x.added), x => `${pl(x.m)} ${x.added ? "joined" : "left"} ${pl(x.g)}`) +
     sec("Access package assignments", D.packages.added, D.packages.removed, x => `${pl(x.p)} — ${esc((PKG.get(x.pkg) || { name: x.pkg }).name)}`) +
+    (M ? sec("Team owners and members", M.access.added.sort((a, b) => (a.role === "owner" ? -1 : 1) - (b.role === "owner" ? -1 : 1)), M.access.removed,
+        x => `${mp(x.u)} — <b>${x.role === "owner" ? "owner" : "member"}</b> of ${tl(x.t, x.name)}${(pById.get(x.u) || {}).guest ? '<span class="tag">guest</span>' : ""}`) +
+      sec("Teams", M.teams.added, M.teams.removed, t => `${tl(t.id, t.name)}<span class="rel">${esc(t.visibility || "")}</span>`) +
+      (M.visibility.length ? `<h3>Team visibility changed</h3><ul>${M.visibility.map(x => `<li>${tl(x.t.id, x.t.name)}<span class="rel">${esc(x.from || "?")} → ${esc(x.t.visibility || "?")}</span></li>`).join("")}</ul>` : "") +
+      sec("SharePoint sites", M.sites.added, M.sites.removed, x => `${siteById.has(x.id) ? `<a data-m="site:${esc(x.id)}">${esc(x.name)}</a>` : esc(x.name)}<span class="rel">${esc(SITE_KIND(x.template))}</span>`) +
+      (M.anyone.length ? `<h3>New "Anyone" links</h3><ul>${M.anyone.map(x => `<li>${siteById.has(x.id) ? `<a data-m="site:${esc(x.id)}">${esc(x.name)}</a>` : esc(x.name)}<span class="rel">${+x.anonymousLinks || 0} link${+x.anonymousLinks === 1 ? "" : "s"} now</span></li>`).join("")}</ul>` : "")
+      : (D.A.m365 || !DATA.m365 ? "" : `<p class="hint">The earlier scan didn't read Teams and SharePoint, so they aren't compared.</p>`)) +
     sec("Management groups, subscriptions, resource groups", D.scopes.added, D.scopes.removed, n => `${nl(n.id)}<span class="rel">${esc(scopeKind(n.id))}</span>`) +
     (D.moved.length ? `<h3>Moved</h3><ul>${D.moved.map(x => `<li>${nl(x.n.id)} moved from ${esc(x.from ? (byId.get(x.from) || D.oldNodes.get(x.from) || { name: x.from }).name : "?")} to ${sn(x.n.parent)}</li>`).join("")}</ul>` : "") +
     sec("Policies", D.policies.added, D.policies.removed, p => `${esc(p.name)}<span class="rel">on ${esc(scopeName(p.scope))}</span>`) +
@@ -2098,7 +2552,8 @@ function diffHtml(D) {
     sec("Resources", D.resources.added, D.resources.removed, n => `${nl(n.id)}<span class="rel">${esc(n.type)}</span>`) +
     sec("Connections", D.edges.added, D.edges.removed, e => `${esc(nm(e.s))} <i>${esc(e.rel)}</i> ${esc(nm(e.t))}`, 60);
   return `<div class="changes">${html}${accessCount || D.resources.added.length || D.resources.removed.length || D.edges.added.length || D.edges.removed.length ||
-    D.policies.added.length || D.policies.removed.length || D.enforcement.length || D.moved.length || D.scopes.added.length || D.scopes.removed.length ? "" : '<p class="hint">No changes.</p>'}</div>`;
+    D.policies.added.length || D.policies.removed.length || D.enforcement.length || D.moved.length || D.scopes.added.length || D.scopes.removed.length ||
+    (M && (M.teams.added.length || M.teams.removed.length || M.sites.added.length || M.sites.removed.length || M.visibility.length || M.anyone.length)) ? "" : '<p class="hint">No changes.</p>'}</div>`;
 }
 function renderChanges() {
   const snaps = APP && APP.native ? (APP.snapshots || []) : [];
@@ -2152,7 +2607,27 @@ function accessRegister() {                  // one row per identity × role × 
     for (const a of e.az) push(p.id, a, "Azure");
     for (const a of e.en) push(p.id, a, "Entra");
   }
+  rows.push(...m365Rows(AUDIT.m365));
   return rows.sort((a, b) => b.priv - a.priv || a.name.localeCompare(b.name) || a.role.localeCompare(b.role));
+}
+function m365Rows(S) {                        // Teams and SharePoint: who owns or belongs to what (S: what the review covers)
+  const rows = [], cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+  const isGuest = pid => !!(pById.get(pid) || {}).guest;
+  const push = (pid, role, level, scope, scopeType, scopeId, path, inc) => {
+    const p = pById.get(pid) || { name: pid, kind: "user" };
+    rows.push({ id: pid, name: p.name, upn: p.upn || "", kind: KIND[p.kind] || "Identity", guest: p.guest ? "Yes" : "", plane: "Microsoft 365", role, level, priv: false,
+      scope, scopeType, path, status: "Active", until: "", group: "", pimGroup: "", pkg: "", scopeId, inScope: inc ? "Yes" : "", prod: "",
+      enabled: p.kind === "user" && !p.m365only ? (p.disabled ? "No" : "Yes") : "", lastSignIn: p.lastSignIn ? (p.lastSignIn === "never" ? "never" : p.lastSignIn.slice(0, 10)) : "" });
+  };
+  for (const t of TEAMS) {
+    const owners = new Set(t.owners || []), type = `Team (${t.visibility || "private"})`;
+    for (const u of owners) push(u, "Team owner", "Owner", t.name, type, "team:" + t.id, t.name, S.owners || (S.guests && isGuest(u)));
+    for (const u of t.members || []) if (!owners.has(u)) push(u, "Team member", "Member", t.name, type, "team:" + t.id, t.name, S.members || (S.guests && isGuest(u)));
+    for (const c of t.channels || []) for (const u of c.members || [])
+      push(u, `${cap(c.type)} channel member`, "Member", `${t.name} › ${c.name}`, `${cap(c.type)} channel`, `chan:${t.id}|${c.id}`, t.name, S.members || (S.guests && isGuest(u)));
+  }
+  for (const x of SITES) if (siteOwnerId.has(x.id)) push(siteOwnerId.get(x.id), "Site owner", "Owner", x.name, SITE_KIND(x.template), "site:" + x.id, x.url || "", S.sites);
+  return rows;
 }
 const stamp = () => (DATA.meta.generated || new Date().toISOString()).slice(0, 10);
 function saveFile(name, text, type, kind) {           // resolves to {path, sha256} or {cancelled}
@@ -2217,7 +2692,7 @@ ${table(["", ""], [
     ["Rights of the reading account", scannerRights().text],
     ["Read between", pv.started ? `${pv.started} and ${pv.finished} (UTC)` : DATA.meta.generated],
     ["Completeness", (DATA.meta.warnings || []).length ? `${DATA.meta.warnings.length} part(s) could not be read; see "Scan notes" at the end` : "Everything the account can see was read"],
-    ["Population", `${resCount} resources, ${ACC.principals.length} identities, ${ACC.azure.length} Azure and ${ACC.entra.length} Entra role assignments, ${ACC.policies.length} policy assignments`],
+    ["Population", `${resCount} resources, ${ACC.principals.length} identities, ${ACC.azure.length} Azure and ${ACC.entra.length} Entra role assignments, ${ACC.policies.length} policy assignments${hasM365() ? `, ${TEAMS.length} teams and ${SITES.length} SharePoint sites` : ""}`],
     ["Audit scope", AUDIT.inScope.length ? AUDIT.inScope.map(scopeName).join(", ") : "All subscriptions"],
     ["Production", (AUDIT.production.length ? "Set by the user: " : "Detected from names and tags: ") + (SUBS.filter(s => isProdSub(s.id)).map(s => s.name).join(", ") || "none")],
     ["Scan fingerprint", APP && APP.scanSha256 ? "SHA-256 " + APP.scanSha256 : "Not available (report made outside the app)"],
@@ -2245,10 +2720,12 @@ ${h("Azure Policy")}${table(["Policy", "Scope", "Type", "Enforcement", "Non-comp
 ${(ACC.ca || []).length ? h("Conditional Access") + table(["Policy", "State"], ACC.ca.map(c => [c.name, c.state === "enabled" ? "On" : c.state === "disabled" ? "Off" : "Report-only"])) : ""}
 ${D ? h(`Changes since ${compareLabel || "the earlier scan"}`) + table(["Change", "Identity", "Role or group", "Scope"], [
     ...D.azure.added.map(a => ["Azure role added", pName(a.p), a.role + (a.status === "eligible" ? " (eligible)" : ""), scopeName(a.scope)]),
-    ...D.azure.removed.map(a => ["Azure role removed", (D.oldP.get(a.p) || { name: pName(a.p) }).name, a.role, scopeName(a.scope)]),
+    ...D.azure.removed.map(a => ["Azure role removed", pById.has(a.p) ? pName(a.p) : PREFS.mask ? "Former user" : (D.oldP.get(a.p) || { name: a.p }).name, a.role, scopeName(a.scope)]),
     ...D.entra.added.map(a => ["Entra role added", pName(a.p), a.role + (a.status === "eligible" ? " (eligible)" : ""), "Directory"]),
     ...D.entra.removed.map(a => ["Entra role removed", (D.oldP.get(a.p) || { name: pName(a.p) }).name, a.role, "Directory"]),
-    ...D.members.map(x => [x.added ? "Joined group" : "Left group", (pById.get(x.m) || D.oldP.get(x.m) || { name: x.m }).name, pName(x.g), ""])]) +
+    ...D.members.map(x => [x.added ? "Joined group" : "Left group", (pById.get(x.m) || (PREFS.mask ? { name: "Former user" } : D.oldP.get(x.m)) || { name: x.m }).name, pName(x.g), ""]),
+    ...(D.m365 ? [...D.m365.access.added.map(x => [x.role === "owner" ? "Became team owner" : "Joined team", pById.has(x.u) ? pName(x.u) : PREFS.mask ? "Former user" : ((D.m365.oldPeople[x.u] || {}).name || x.u), x.name, ""]),
+      ...D.m365.access.removed.map(x => [x.role === "owner" ? "No longer team owner" : "Left team", pById.has(x.u) ? pName(x.u) : PREFS.mask ? "Former user" : ((D.m365.oldPeople[x.u] || {}).name || x.u), x.name, ""])] : [])]) +
     `<p class="meta">Also: resources +${D.resources.added.length} / −${D.resources.removed.length}, connections +${D.edges.added.length} / −${D.edges.removed.length}, policies +${D.policies.added.length} / −${D.policies.removed.length}.</p>` : ""}
 ${h("Scan notes")}${(DATA.meta.warnings || []).length ? `<ul>${DATA.meta.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "<p>Everything in scope was read.</p>"}
 </body></html>`;
@@ -2646,6 +3123,8 @@ function settingsHtml() {
       <h3>Presentation mode</h3><label class="opt"><input type="checkbox" id="set-mask" ${PREFS.mask ? "checked" : ""}> Replace people's names and emails with placeholders</label>
       <p class="hint">"User 014" instead of a name, on screen and in everything you export while it's on. Use it for demos, screenshots and slides. Audit evidence should be made with it off.</p>
       <h3>Views</h3><p class="hint">Hide views you don't use.</p><div class="opts">${views}</div>
+      <h3>On the map</h3><p class="hint">What the map shows when it opens. The checkmarks above the map change it for the moment.</p><div class="opts">${BRANCHES.map(([k, l]) =>
+        `<label class="opt"><input type="checkbox" data-show="${k}" ${PREFS.show[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
       <h3>Thresholds</h3>${num("secretDays", "Warn about app secrets expiring within", "days")}${num("secretYears", "Flag secrets valid for more than", "years")}
       ${num("inactiveDays", "Flag admin accounts not used for", "days")}${num("maxOwners", "Flag subscriptions with more owners than", "people")}${num("staleDays", "Call a scan out of date after", "days")}</section>
     <section><h3>Columns</h3><p class="hint"><b>Required</b> columns are always included: auditors need them to rely on the evidence. <b>Recommended</b> ones are on by default. Signed access reviews always keep every column.</p>
@@ -2664,6 +3143,7 @@ function openSettings() {
   $("set-cancel").onclick = () => overlay("");
   $("set-save").onclick = async () => {
     draft.mask = $("set-mask").checked;
+    draft.show = Object.fromEntries(BRANCHES.map(([k]) => [k, card.querySelector(`[data-show="${k}"]`).checked]));
     draft.hidden = VIEW_LIST.map(v => v[0]).filter(k => viewAllowed(k) && !card.querySelector(`[data-view="${k}"]`).checked);
     if (draft.hidden.length === VIEW_LIST.length) draft.hidden = draft.hidden.filter(k => k !== "find");
     for (const el of card.querySelectorAll("[data-num]")) { const n = Math.round(+el.value); if (n > 0 && n < 10000) draft[el.dataset.num] = n; }
@@ -2672,7 +3152,8 @@ function openSettings() {
     if (host) { try { await call("savePrefs", { prefs: draft }); } catch (err) { flash(err.message); } return; }   // the app reloads the page
     const maskOn = draft.mask && !PREFS.mask;
     Object.assign(PREFS, draft); applyTheme(); applyViews(); findingsCache = null; appRowsCache = null; hiddenCache = null;
-    if (maskOn) { maskPeople(ACC); }
+    if (maskOn) { maskPeople(ACC); maskM365(); }
+    hiddenBranches.clear(); for (const [k] of BRANCHES) if (!PREFS.show[k]) hiddenBranches.add(k); addBranchFilters();
     overlay(""); cy.style(buildStyle()); setView(viewOn(view) ? view : VIEW_LIST.map(v => v[0]).find(viewOn));
   };
 }

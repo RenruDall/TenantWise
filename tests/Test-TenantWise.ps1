@@ -110,6 +110,16 @@ try {
     Expect 'Secret and certificate dates'  (@($d.access.apps | ForEach-Object { $_.creds } | Where-Object { -not $_.end -or $_.t -notin 'secret', 'cert' }).Count -eq 0) 'every credential has a type and an end date'
     Check 'Graph application permissions'  $exp.appPerms ($d.access.appPerms | ForEach-Object { "$($_.p)|$($_.perm)|$([bool]$_.external)" })
     Check 'Cross-tenant partners'          $exp.crossTenant ($d.access.crossTenant.partners | ForEach-Object { "$($_.tenantId)|$($_.mfa)|$($_.device)|$($_.b2bIn)" })
+
+    Write-Host "`nMicrosoft 365" -ForegroundColor White
+    $n = { param($x) if ($x) { @($x).Count } else { 0 } }
+    Check 'Teams with owners, members, guests' ($exp.m365Teams | ForEach-Object { "$($_.id)|$($_.name)|$($_.visibility)|$($_.members)|$($_.guests)|" + ((@($_.owners) | Sort-Object) -join ',') }) `
+                                           ($d.m365.teams | ForEach-Object { "$($_.id)|$($_.name)|$($_.visibility)|$(& $n $_.members)|$($_.guests)|" + ((@($_.owners) | Sort-Object) -join ',') })
+    Check 'Channels and their members'     ($exp.m365Teams | ForEach-Object { $t = $_; $_.channels | ForEach-Object { "$($t.id)|$_" } }) `
+                                           ($d.m365.teams | ForEach-Object { $t = $_; $_.channels | ForEach-Object { "$($t.id)|$($_.name)|$($_.type)|$(& $n $_.members)" } })
+    Check 'SharePoint sites (deleted left out)' ($exp.m365Sites | ForEach-Object { "$($_.url)|$($_.team)" }) ($d.m365.sites | ForEach-Object { "$($_.url)|$($_.team)" })
+    Expect 'Each team linked to its site'  (@($exp.m365Teams | Where-Object { $t = $_; ($d.m365.teams | Where-Object id -eq $t.id).site -ne $t.site }).Count -eq 0) 'from the usage report'
+    Expect 'Sites not concealed'           (-not $d.m365.concealed -and $d.m365.reportDate) "report of $($d.m365.reportDate)"
     Expect 'Tenant domain'                 ($d.meta.tenantDomain -eq $exp.tenantDomain) $d.meta.tenantDomain
     Expect 'Tenant name'                   ($d.meta.tenantName -eq $exp.tenantName) $d.meta.tenantName
     Expect 'Denied management group noted' (@($d.meta.warnings | Where-Object { $_ -match $exp.deniedWarning }).Count -gt 0) "$(@($d.meta.warnings).Count) scan notes"

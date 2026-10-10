@@ -605,6 +605,60 @@ for e in group_elig:
                                                         **({"endDateTime": e["until"]} if e["until"] else {})))
 G["ca"] = [{"id": str(k), "displayName": c["name"], "state": c["state"]} for k, c in enumerate(ca)]
 
+
+# ---------- Microsoft 365: teams, channels and the SharePoint site inventory (usage report)
+m365_rng = random.Random(7)                       # own generator: the rest of the tenant stays as it was
+def mgid(): return str(uuid.UUID(int=m365_rng.getrandbits(128)))
+real_users = [u for u in users if u in G["objects"]]
+real_guests = [u for u in guests if u in G["objects"]]
+TEAMS = [  # name, visibility, t_owners, t_members, guests, channels [(name, type, t_members)], days since site activity
+    ("Finance", "Private", 2, 12, 1, [("Board", "private", 3)], 3),
+    ("HR Team", "Private", 1, 6, 0, [], 10),
+    ("Ropeway Engineering", "Public", 2, 20, 3, [("Supplier Doppel", "shared", 2)], 1),
+    ("IT Operations", "Private", 3, 8, 0, [("Incidents", "private", 4)], 0),
+    ("Project Lana", "Public", 0, 5, 0, [], 40),
+    ("All Company", "Public", 2, 60, 0, [], 2),
+    ("Sales Italy", "Private", 1, 4, 1, [], 15),
+    ("Old Project X", "Private", 2, 3, 0, [], 400)]
+G["teams"], G["groupMembersM365"], G["teamChannels"], G["channelMembers"], csv_rows, exp_teams, exp_sites = [], {}, {}, {}, [], [], []
+TENANT_SP = "https://alpinademo.sharepoint.com"
+def report_row(site_id, url, owner, owner_upn, template, days, deleted=False):
+    return [NOW(-1)[:10], site_id, url, owner, "True" if deleted else "False", NOW(-days)[:10], "", "True", "Allow", "EUR",
+            str(m365_rng.randint(5, 4000)), "1", "10", "3", str(m365_rng.choice([0, 0, 2])), "1", "0", "4", str(m365_rng.randint(10**6, 10**10)), "27487790694400", template, owner_upn, "30"]
+for name, vis, n_own, n_mem, n_guest, chans, days in TEAMS:
+    tid, nick = mgid(), name.replace(" ", "")
+    t_owners = m365_rng.sample(real_users, n_own)
+    t_members = list(dict.fromkeys(t_owners + m365_rng.sample(real_users, n_mem) + m365_rng.sample(real_guests, n_guest)))
+    G["teams"].append({"id": tid, "displayName": name, "visibility": vis, "createdDateTime": NOW(-500), "mailNickname": nick, "resourceProvisioningOptions": ["Team"]})
+    G["owners"][tid] = [bare(u) for u in t_owners]
+    G["groupMembersM365"][tid] = [G["objects"][u] for u in t_members]
+    G["teamChannels"][tid] = [{"id": f"19:general{k}@thread.tacv2", "displayName": "General", "membershipType": "standard"} for k in [0]]
+    exp_ch = ["General|standard|0"]
+    for k, (cn, ctype, cmem) in enumerate(chans):
+        cid = f"19:{mgid()}@thread.tacv2"
+        cms = m365_rng.sample(t_members, cmem)
+        G["teamChannels"][tid].append({"id": cid, "displayName": cn, "membershipType": ctype})
+        G["channelMembers"][f"{tid}/{cid}"] = [{"@odata.type": "#microsoft.graph.aadUserConversationMember", "id": mgid(), "userId": u,
+                                                "displayName": G["objects"][u]["displayName"], "email": G["objects"][u].get("userPrincipalName"), "roles": []} for u in cms]
+        exp_ch.append(f"{cn}|{ctype}|{cmem}")
+        csv_rows.append(report_row(mgid(), f"{TENANT_SP}/sites/{nick}-{cn.replace(' ', '')}", f"{name} - {cn}", "", "TEAMCHANNEL#1", days))
+        exp_sites.append({"url": f"{TENANT_SP}/sites/{nick}-{cn.replace(' ', '')}", "team": tid})
+    site_id = mgid()
+    csv_rows.append(report_row(site_id, f"{TENANT_SP}/sites/{nick}", name, "", "GROUP#0", days))
+    exp_sites.append({"url": f"{TENANT_SP}/sites/{nick}", "team": tid})
+    exp_teams.append({"id": tid, "name": name, "visibility": vis.lower(), "owners": sorted(t_owners), "members": len(t_members),
+                      "guests": sum(1 for u in t_members if u in real_guests), "channels": sorted(exp_ch), "site": site_id})
+for url, owner, tpl, days in [(TENANT_SP + "/", "Intranet Admin", "SITEPAGEPUBLISHING#0", 1), (TENANT_SP + "/sites/Intranet", "Communications", "SITEPAGEPUBLISHING#0", 5),
+                              (TENANT_SP + "/sites/Archive2019", "Records", "STS#3", 900)]:
+    csv_rows.append(report_row(mgid(), url, owner, "", tpl, days)); exp_sites.append({"url": url, "team": ""})
+csv_rows.append(report_row(mgid(), TENANT_SP + "/sites/Deleted", "Gone", "", "STS#3", 50, deleted=True))
+HEAD = ["Report Refresh Date", "Site Id", "Site URL", "Owner Display Name", "Is Deleted", "Last Activity Date", "Site Sensitivity Label Id", "External Sharing",
+        "Unmanaged Device Policy", "Geolocation", "File Count", "Active File Count", "Page View Count", "Visited Page Count", "Anonymous Link Count",
+        "Company Link Count", "Secure Link For Guest Count", "Secure Link For Member Count", "Storage Used (Byte)", "Storage Allocated (Byte)",
+        "Root Web Template", "Owner Principal Name", "Report Period"]
+def csv_line(r): return ",".join('"' + c.replace('"', '""') + '"' if ("," in c or '"' in c) else c for c in r)
+G["siteReport"] = "﻿" + "\r\n".join(csv_line(r) for r in [HEAD] + csv_rows) + "\r\n"
+
 # ---------- expected result
 referenced = {a["p"] for a in azure} | {a["p"] for a in entra}
 referenced |= {m for g, ms in members.items() if g in referenced for m in ms}
@@ -642,6 +696,7 @@ expected = {
     "apps": exp_apps, "appPerms": exp_perms,
     "crossTenant": [f"{c['tenantId']}|{c['mfa']}|{c['device']}|{c['b2bIn']}" for c in partners_ct],
     "tenantDomain": "alpina-demo.example",
+    "m365Teams": exp_teams, "m365Sites": exp_sites,
     "twClient": TW_CLIENT,
     "twOrgWideWrite": ["AppRoleAssignment.ReadWrite.All"],
     "twAssignments": sorted(f"{p_}|{r_}" for p_, t_, r_ in tw_assign),
