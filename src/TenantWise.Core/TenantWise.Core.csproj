@@ -6,6 +6,9 @@
     <Nullable>disable</Nullable>
     <RootNamespace>TenantWise.Core</RootNamespace>
     <Version>0.0.0</Version>
+    <!-- Exact package versions are recorded in packages.lock.json; on the build server (CI=true) a committed lock file is enforced. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="Exists('packages.lock.json') And '$(CI)' == 'true'">true</RestoreLockedMode>
     <Product>TenantWise</Product>
     <AssemblyTitle>TenantWise.Core</AssemblyTitle>
     <Description>TenantWise data collection engine (read-only)</Description>

@@ -1,7 +1,7 @@
 # Security policy
 
 TenantWise reads who can access what in Microsoft Azure and Entra ID. That information is sensitive, so the app is
-built to read as little as needed, keep it on your PC and make tampering visible. This page explains how, and how to
+built to read as little as needed, keep it on your PC and make changes to its evidence visible. This page explains how, and how to
 report a problem.
 
 ## Reporting a vulnerability
@@ -53,51 +53,74 @@ TenantWise is maintained by one person in their own time, so these are goals, no
 **Who can use what**
 - Only Global Administrators can use TenantWise until they give others features in TenantWise's *Users* dashboard,
   per group or per person. Each sign-in checks the Global Administrator role live and reads the person's features from
-  the ID token; the app hides and refuses everything else. Each sign-in is logged with its features.
+  the ID token. The app checks them for every save and export, sends no scan data to someone without a feature, and
+  shows each person only their own scans (Global Administrators see all). Each sign-in is logged with its features.
+- Features are usage governance, not a security boundary: the signed-in Windows user controls the app on their own PC.
+  What anyone can read is decided by their own Azure and Entra rights.
+- Recommended in Entra: *Assignment required* on, with the people who use TenantWise assigned; TenantWise in a
+  Conditional Access policy; *Allow public client flows* off.
 - The ticks are stored as app role assignments on TenantWise's own enterprise application. Writing them is the only
   change TenantWise ever makes in a tenant: only when a Global Administrator saves, with `AppRoleAssignment.ReadWrite.All`
   (and once `Application.ReadWrite.All` to add the features to TenantWise's app registration), requested at that moment
-  and never at a normal sign-in. The code only ever targets TenantWise's own application. Changes are logged.
-- Features limit what TenantWise lets someone do, not what their own Azure and Entra rights let them read with other tools.
+  and never at a normal sign-in. The code only ever targets TenantWise's own application. Every change is logged, also
+  when Entra stops a batch part-way.
+- Approve those two write permissions for the administrator only, never "on behalf of your organization". The *Users*
+  view reports an organization-wide approval so it can be revoked.
 
 **Your data stays on your PC**
 - No telemetry, no analytics, no update checks, no TenantWise servers. The app talks only to Microsoft sign-in,
   Azure Resource Manager and Microsoft Graph.
-- Scans, audit scope, access reviews, the list of tenants and settings are encrypted at rest with Windows DPAPI for the
-  signed-in Windows user (`%LOCALAPPDATA%\TenantWise`). Other users of the PC can't read them.
+- Scans, audit scope, access reviews, the list of tenants and preferences are encrypted at rest with Windows DPAPI for
+  the signed-in Windows user (`%LOCALAPPDATA%\TenantWise`). The page is served from memory, so no decrypted copy is
+  written to disk, and the browser cache is cleared at start. Other users of the PC and copies of the disk can't read
+  the data; programs running as the same Windows user can. `settings.json` holds only the last app (client) ID, unencrypted.
 - Switching tenant always signs out first; every tenant needs a fresh Microsoft sign-in. The tenant list holds no
   passwords or tokens.
-- Presentation mode replaces people's names and emails with placeholders on screen and in exports, for demos.
+- Presentation mode replaces people's names and emails with placeholders on screen and in exports, saved reports included.
 - Exports (reports, CSV, signed reviews) are written only where you choose, unencrypted, so other tools can open them.
   They name people with administrative rights: treat them as confidential.
 
 **Evidence integrity**
 - Every scan records who ran it, when, with which version and what could not be read.
-- Scans and exported files get a SHA-256 fingerprint. Sign-ins, scans, comparisons, exports and review sign-offs are
-  written to a hash-chained activity log; the app verifies the chain and reports any edited, removed or reordered entry.
+- Scans and exported files get a SHA-256 fingerprint. Sign-ins, scans, comparisons, exports, access changes and review
+  sign-offs are written to a hash-chained activity log. Its latest position (entry count and hash) is kept apart from the
+  log, encrypted, so the app reports edited, removed, reordered or cut-off entries and a deleted log. Every exported report
+  ends with the log position at saving, so copies in an evidence store can be checked against the log later.
+- The log can also be copied, entry by entry, to a folder outside the PC (for example a network share collected by a
+  SIEM); the app checks that every copied entry is still in the local log.
+- Limits: without that copy, someone with full control of the PC can replace the log and its anchor together, and times come from the PC's
+  clock (UTC). Keep exports in an evidence store; the Entra audit log stays the authoritative record of tenant changes.
+- Access-review sign-offs record the signed-in account and the app's own time, are accepted only with evidence the app
+  saved itself, and can't be changed afterwards: a new review keeps the signed one as an earlier version.
 
 **The app itself**
-- The interface runs in Microsoft Edge WebView2 from a local folder. Navigation to any other address is blocked and
-  opened in your normal browser instead; developer tools are disabled in release builds.
-- A Content Security Policy stops the page from contacting the internet: no requests, remote images, fonts, frames or
-  forms. All libraries, icons and the font are embedded.
+- The interface runs in Microsoft Edge WebView2, served from the app's memory. Navigation to any other address is
+  blocked; only links to a short list of Microsoft and GitHub sites open in your normal browser. Developer tools,
+  the context menu, browser shortcuts, downloads and device permissions are disabled in release builds.
+- A Content Security Policy stops the page from contacting the internet (no requests, remote images, fonts, frames or
+  forms) and allows only scripts carrying a one-time nonce. All libraries, icons and the font are embedded.
+- Tenant data is embedded so that no name in a scan can change or break the page.
 - Messages from the page are only accepted from the app's own local origin, and file names are checked before anything
   is written.
 - The installer installs for the current user only and needs no administrator rights. No app ID is built in.
+- One TenantWise window per Windows user, so two windows can't interleave the activity log.
 
 ## Verifying a download
 
 - Releases are built from the tagged source by GitHub Actions; the build log is public on the release's workflow run.
 - Each release includes `SHA256SUMS.txt`. Check a file with PowerShell: `Get-FileHash .\TenantWise-Setup-<version>.exe`
   and compare the hash.
-- Releases are code-signed through SignPath Foundation, after manual approval of each signing request
-  ([code signing policy](CODE_SIGNING.md)). Check the signature: `Get-AuthenticodeSignature <file>`.
+- Code signing through SignPath Foundation is being set up: once approved, every release is signed after manual approval
+  of each signing request ([code signing policy](CODE_SIGNING.md)). Releases up to 1.2.1 are unsigned. Check a signature
+  with `Get-AuthenticodeSignature <file>`.
 
 ## Dependencies
 
 - Cytoscape.js, a selection of Fluent UI System Icons and the Inter typeface are embedded (see `THIRD-PARTY-NOTICES.txt`).
-- The Windows app uses Microsoft Authentication Library (MSAL), Microsoft Edge WebView2 and System.Text.Json from NuGet.
-- Dependabot watches the NuGet packages and the build actions for updates.
+- The Windows app uses Microsoft Authentication Library (MSAL), Microsoft Edge WebView2 and System.Text.Json from NuGet,
+  each pinned to an exact version. Build actions are pinned to commit SHAs. Dependabot proposes updates to both.
+- Releases come with a software bill of materials (`.spdx.json`) and GitHub build provenance
+  (`gh attestation verify <file> --repo RenruDall/TenantWise`). Tests run in a separate job that has no signing secrets.
 
 ## Recommendations for administrators
 

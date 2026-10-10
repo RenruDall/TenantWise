@@ -581,6 +581,9 @@ G["applications_tw"] = {"id": gid(), "appId": TW_CLIENT, "appRoles": [dict(r) fo
 G["me"] = bg[0]                          # the signed-in person in the manage tests: a Global Administrator
 G["directoryRoles"] = {bg[0]: [{"id": gid(), "displayName": "Global Administrator", "roleTemplateId": "62e90394-69f5-4237-9190-012177145e10"}],
                        users[30]: [{"id": gid(), "displayName": "Global Reader", "roleTemplateId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451"}]}
+# an administrator once ticked "consent on behalf of your organization" for a write permission: TenantWise must report it
+G["grants"] = [{"id": gid(), "clientId": tw_sp["id"], "consentType": "AllPrincipals", "resourceId": "graph", "scope": "Directory.Read.All AppRoleAssignment.ReadWrite.All"},
+               {"id": gid(), "clientId": tw_sp["id"], "consentType": "Principal", "principalId": "x", "resourceId": "graph", "scope": "Application.ReadWrite.All"}]
 G["assignedTo"] = {tw_sp["id"]: [{"id": gid(), "principalId": p_, "principalType": t_, "principalDisplayName": G["objects"][p_]["displayName"],
                                   "appRoleId": TW_ROLES[r_], "resourceId": tw_sp["id"], "createdDateTime": NOW(-40)} for p_, t_, r_ in tw_assign]}
 G["ctDefault"] = {"inboundTrust": {"isMfaAccepted": False, "isCompliantDeviceAccepted": False, "isHybridAzureADJoinedDeviceAccepted": False},
@@ -640,6 +643,7 @@ expected = {
     "crossTenant": [f"{c['tenantId']}|{c['mfa']}|{c['device']}|{c['b2bIn']}" for c in partners_ct],
     "tenantDomain": "alpina-demo.example",
     "twClient": TW_CLIENT,
+    "twOrgWideWrite": ["AppRoleAssignment.ReadWrite.All"],
     "twAssignments": sorted(f"{p_}|{r_}" for p_, t_, r_ in tw_assign),
     "twMissing": ["TenantWise.Access", "TenantWise.Apps", "TenantWise.SignOff"],
     "twUser30": users[30], "twLead": members[g_secops][0], "twSearch": G["objects"][users[30]]["displayName"].split()[0],

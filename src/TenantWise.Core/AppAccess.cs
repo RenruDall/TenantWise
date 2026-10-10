@@ -51,6 +51,9 @@ namespace TenantWise.Core
     {
         public const string GlobalAdminTemplate = "62e90394-69f5-4237-9190-012177145e10";
 
+        /// <summary>Delegated permissions only "Manage access" uses. They must never be consented for the whole organization.</summary>
+        public static readonly string[] WriteScopes = { "AppRoleAssignment.ReadWrite.All", "Application.ReadWrite.All" };
+
         /// <summary>The features an administrator can give. Tenants, scanning and personal settings come with any of them.</summary>
         public static readonly string[] AllFeatures = { "map", "access", "apps", "findings", "audit", "signoff", "export" };
 
@@ -125,6 +128,18 @@ namespace TenantWise.Core
             result["definedRoles"] = new JsonArray(defined.Select(id => (JsonNode)JsonValue.Create(FindById(id).Value)).ToArray());
             result["missingRoles"] = new JsonArray(Roles.Where(r => !defined.Contains(r.Id, StringComparer.OrdinalIgnoreCase)).Select(r => (JsonNode)JsonValue.Create(r.Value)).ToArray());
             result["assignmentRequired"] = Api.Str(sp["appRoleAssignmentRequired"]) == "true";
+            // The write permissions must only ever be consented for the administrator who saves here, never for the
+            // whole organization: report a tenant-wide grant so it can be revoked.
+            var orgWide = new JsonArray();
+            try
+            {
+                foreach (var g in await api.GraphListAsync($"/oauth2PermissionGrants?$filter=clientId eq '{Esc(Api.Str(sp["id"]))}'", ct).ConfigureAwait(false))
+                    if (Api.Str(g["consentType"]) == "AllPrincipals")
+                        foreach (var scope in (Api.Str(g["scope"]) ?? "").Split(' '))
+                            if (WriteScopes.Contains(scope, StringComparer.OrdinalIgnoreCase)) orgWide.Add(scope);
+            }
+            catch (ApiException) { /* can't tell; the dashboard shows nothing */ }
+            result["orgWideWriteConsent"] = orgWide;
             var list = new JsonArray();
             var groups = new JsonObject();
             foreach (var a in await api.GraphListAsync($"/servicePrincipals/{Api.Str(sp["id"])}/appRoleAssignedTo?$top=999", ct).ConfigureAwait(false))
@@ -152,9 +167,10 @@ namespace TenantWise.Core
         /// <summary>Users and groups whose name (or sign-in name) starts with the text, for the dashboard's picker.</summary>
         public static async Task<JsonArray> SearchAsync(Api api, string text, CancellationToken ct)
         {
-            var q = Esc((text ?? "").Trim());
+            var raw = (text ?? "").Trim();
             var found = new JsonArray();
-            if (q.Length < 2) return found;
+            if (raw.Length < 2) return found;
+            var q = Uri.EscapeDataString(Esc(raw));                          // quotes doubled for OData, then URL-encoded
             foreach (var u in await api.GraphListAsync($"/users?$filter=startswith(displayName,'{q}') or startswith(userPrincipalName,'{q}')&$select=id,displayName,userPrincipalName&$top=15", ct).ConfigureAwait(false))
                 found.Add(new JsonObject { ["id"] = Api.Str(u["id"]), ["type"] = "User", ["name"] = Api.Str(u["displayName"]), ["upn"] = Api.Str(u["userPrincipalName"]) });
             foreach (var g in await api.GraphListAsync($"/groups?$filter=startswith(displayName,'{q}')&$select=id,displayName,description&$top=15", ct).ConfigureAwait(false))
@@ -185,33 +201,49 @@ namespace TenantWise.Core
             public bool Grant { get; set; }
         }
 
-        /// <summary>Applies the dashboard's changes as app role assignments on TenantWise's own enterprise application.</summary>
-        public static async Task<(int granted, int removed)> ApplyAsync(Api api, string clientId, IList<Change> changes, CancellationToken ct)
+        /// <summary>What ApplyAsync managed to do, also when it stops part-way (so the app can log it either way).</summary>
+        public sealed class ApplyProgress
         {
-            var sp = await ServicePrincipalAsync(api, clientId, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("TenantWise isn't registered as an enterprise application in this tenant yet.");
-            var spId = Api.Str(sp["id"]);
-            var current = await api.GraphListAsync($"/servicePrincipals/{spId}/appRoleAssignedTo?$top=999", ct).ConfigureAwait(false);
-            int granted = 0, removed = 0;
+            public int Granted { get; set; }
+            public int Removed { get; set; }
+            public List<string> Done { get; } = new List<string>();
+        }
+
+        /// <summary>Applies the dashboard's changes as app role assignments on TenantWise's own enterprise application.
+        /// Every change is checked before the first one is made; progress shows what was done if Entra refuses one.</summary>
+        public static async Task<(int granted, int removed)> ApplyAsync(Api api, string clientId, IList<Change> changes, CancellationToken ct, ApplyProgress progress = null)
+        {
+            progress = progress ?? new ApplyProgress();
+            var checkedChanges = new List<(Change change, AppRoleDef role)>();
             foreach (var c in changes)
             {
                 var role = Find(c.Role) ?? throw new InvalidOperationException("Unknown TenantWise feature " + c.Role);
                 if (!Guid.TryParse(c.PrincipalId, out _)) throw new InvalidOperationException("Unknown user or group.");
+                checkedChanges.Add((c, role));
+            }
+            var sp = await ServicePrincipalAsync(api, clientId, ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("TenantWise isn't registered as an enterprise application in this tenant yet.");
+            var spId = Api.Str(sp["id"]);
+            var current = await api.GraphListAsync($"/servicePrincipals/{spId}/appRoleAssignedTo?$top=999", ct).ConfigureAwait(false);
+            foreach (var (c, role) in checkedChanges)
+            {
                 var have = current.Where(a => Api.Str(a["principalId"]) == c.PrincipalId && string.Equals(Api.Str(a["appRoleId"]), role.Id, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (c.Grant && have.Count == 0)
                 {
                     await api.GraphWriteAsync("graph-manage", "POST", $"/servicePrincipals/{spId}/appRoleAssignedTo",
                         new JsonObject { ["principalId"] = c.PrincipalId, ["resourceId"] = spId, ["appRoleId"] = role.Id }, ct).ConfigureAwait(false);
-                    granted++;
+                    progress.Granted++;
+                    progress.Done.Add("+" + role.Value + " " + c.PrincipalId);
                 }
                 else if (!c.Grant)
                     foreach (var a in have)
                     {
                         await api.GraphWriteAsync("graph-manage", "DELETE", $"/servicePrincipals/{spId}/appRoleAssignedTo/{Api.Str(a["id"])}", null, ct).ConfigureAwait(false);
-                        removed++;
+                        progress.Removed++;
+                        progress.Done.Add("-" + role.Value + " " + c.PrincipalId);
                     }
             }
-            return (granted, removed);
+            return (progress.Granted, progress.Removed);
         }
 
         /// <summary>The roles as the app registration manifest wants them ("appRoles"), ready to paste.</summary>

@@ -118,10 +118,13 @@ try {
     $acc = { param($step) [TenantWise.Tests.TestHost]::Access($base, $exp.twClient, $step) }
     $tw = & $acc 'read' | ConvertFrom-Json -Depth 10
     Expect 'Setup read; missing features found' ($tw.found -and -not $tw.assignmentRequired -and (($tw.missingRoles | Sort-Object) -join ',') -eq (($exp.twMissing | Sort-Object) -join ',')) (($tw.missingRoles) -join ', ')
+    Check  'Org-wide write consent reported' $exp.twOrgWideWrite @($tw.orgWideWriteConsent)
     Check  'Feature assignments'           $exp.twAssignments ($tw.assignments | ForEach-Object { "$($_.principalId)|$($_.role)" })
     Check  'Assigned group expanded'       $exp.twGroupMembers ($tw.groupMembers.($exp.twGroup) | ForEach-Object id)
     Expect 'Global Administrator detected' ((& $acc 'ga') -eq 'true') 'signed-in person holds Global Administrator'
     $found = & $acc "search:$($exp.twSearch)" | ConvertFrom-Json
+    $err = $null; try { & $acc "search:a&b#c'd" | Out-Null } catch { $err = $_.Exception.InnerException ?? $_.Exception }
+    Expect 'Search text can''t change the query' ($null -eq $err) "special characters are encoded $err"
     Expect 'Directory search for the picker' (@($found | Where-Object id -eq $exp.twUser30).Count -eq 1) "$(@($found).Count) found for '$($exp.twSearch)'"
     Expect 'Missing features added'        ((& $acc 'setup') -eq '3' -and @((& $acc 'read' | ConvertFrom-Json -Depth 10).missingRoles).Count -eq 0) 'only TenantWise roles; the app''s other role kept'
     Expect 'Setup again changes nothing'   ((& $acc 'setup') -eq '0') 'idempotent'
@@ -217,6 +220,47 @@ try {
     Set-Content $logFile ($lines[0], $lines[2], $lines[3])
     $v = [TenantWise.Core.EvidenceLog]::new($logFile).Verify()
     Expect 'Removed entry detected'        (-not $v.Item1) $v.Item3
+
+    # with an anchor kept apart from the log: cutting the end, deleting or rewriting the log is reported too
+    Remove-Item $logFile
+    $script:anchor = $null
+    $read = [Func[string]] { $script:anchor }
+    $write = [Action[string]] { param($a) $script:anchor = $a }
+    $log = [TenantWise.Core.EvidenceLog]::new($logFile, $read, $write)
+    foreach ($a in 'signed.in', 'scan.completed', 'export.saved') { [void]$log.Append($a, $null) }
+    $head = $log.Head()
+    Expect 'Anchor and head agree'         ($script:anchor -eq "$($head.Item1) $($head.Item2) 1" -and $head.Item1 -eq 3 -and $head.Item3 -eq 1) $script:anchor
+    $all = Get-Content $logFile
+    Set-Content $logFile ($all[0], $all[1])
+    $v = $log.Verify()
+    Expect 'Entries cut from the end detected' (-not $v.Item1 -and $v.Item3 -match 'removed from the end') $v.Item3
+    Remove-Item $logFile
+    $v = $log.Verify()
+    Expect 'Deleted log detected'          (-not $v.Item1 -and $v.Item3 -match 'missing') $v.Item3
+    $saved = $script:anchor
+    $script:anchor = $null
+    foreach ($a in 'signed.in', 'scan.completed', 'export.saved') { [void]$log.Append($a, $null) }
+    $script:anchor = $saved
+    $v = $log.Verify()
+    Expect 'Rewritten log detected'        (-not $v.Item1 -and $v.Item3 -match 'rewritten') $v.Item3
+    $script:anchor = $null
+    $v = $log.Verify()
+    Expect 'Missing anchor reported'       (-not $v.Item1 -and $v.Item3 -match 'anchor is missing') $v.Item3
+    [void]$log.Append('app.started', $null)
+    $v = $log.Verify()
+    Expect 'Re-created anchor starts late' ($v.Item1 -and $v.Item4 -eq 4) "anchored since entry $($v.Item4)"
+
+    # a copy of the log in a second place shows a log that was changed after the entries were copied
+    $copyFile = "$logFile.copy"
+    $log.StartCopy($copyFile)
+    [void]$log.Append('export.saved', $null)
+    $c = $log.CheckCopy()
+    Expect 'Log copy matches'              ($c.Item1 -and $c.Item2 -match 'matches') $c.Item2
+    $lines = Get-Content $logFile
+    Set-Content $logFile $lines[0..($lines.Count - 2)]
+    $c = $log.CheckCopy()
+    Expect 'Change after copying detected' (-not $c.Item1) $c.Item2
+    Remove-Item $copyFile -ErrorAction SilentlyContinue
 } finally { Remove-Item $logFile -ErrorAction SilentlyContinue }
 
 Write-Host ''
