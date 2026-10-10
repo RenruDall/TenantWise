@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -30,6 +31,9 @@ namespace TenantWise.Core
         public string ToolVersion { get; set; }
         /// <summary>Upper bound for reading sign-in activity (pages of 120 users).</summary>
         public int MaxSignInPages { get; set; } = 100;
+        /// <summary>Read Microsoft Teams (owners, members, guests, channels) and the SharePoint site inventory.</summary>
+        public bool M365 { get; set; } = true;
+        public int MaxTeams { get; set; } = 3000;
     }
 
     public sealed class Scanner
@@ -72,6 +76,35 @@ namespace TenantWise.Core
         private void Step(string text) { _progress?.Report(text); }
 
         private static string S(JsonObject row, string prop) => row == null ? "" : (Api.Str(row[prop]) ?? "");
+
+        /// <summary>Rows of a CSV text (quoted fields, doubled quotes, CRLF or LF).</summary>
+        internal static List<List<string>> Csv(string text)
+        {
+            var rows = new List<List<string>>(); var row = new List<string>(); var f = new StringBuilder(); var q = false;
+            text = text ?? "";
+            for (var k = 0; k < text.Length; k++)
+            {
+                var c = text[k];
+                if (q)
+                {
+                    if (c == '"' && k + 1 < text.Length && text[k + 1] == '"') { f.Append('"'); k++; }
+                    else if (c == '"') q = false;
+                    else f.Append(c);
+                }
+                else if (c == '"') q = true;
+                else if (c == ',') { row.Add(f.ToString()); f.Clear(); }
+                else if (c == '\n' || c == '\r')
+                {
+                    if (c == '\r' && k + 1 < text.Length && text[k + 1] == '\n') k++;
+                    row.Add(f.ToString()); f.Clear();
+                    if (row.Count > 1 || row[0].Length > 0) rows.Add(row);
+                    row = new List<string>();
+                }
+                else f.Append(c);
+            }
+            if (f.Length > 0 || row.Count > 0) { row.Add(f.ToString()); rows.Add(row); }
+            return rows;
+        }
         private static string Low(string s) => (s ?? "").ToLowerInvariant();
 
         private void AddNode(IDictionary<string, object> n)
@@ -508,6 +541,7 @@ namespace TenantWise.Core
             var groupOwners = new JsonObject();     // owners of groups that hold privileged roles: they can add themselves
             var nested = new JsonObject();          // groups nested inside groups that hold roles
             JsonObject crossTenant = null;
+            JsonObject m365 = null;                  // teams, channels and SharePoint sites (when read)
             string tenantName = null, tenantDomain = null;
             void AddPrincipal(JsonObject o)
             {
@@ -809,6 +843,156 @@ namespace TenantWise.Core
                     foreach (var p in await _api.GraphListAsync("/identity/conditionalAccess/policies?$select=id,displayName,state", ct).ConfigureAwait(false))
                         ca.Add(new JsonObject { ["name"] = S(p, "displayName"), ["state"] = S(p, "state") });
                 }).ConfigureAwait(false);
+
+                // ---------- Microsoft 365: teams with owners, members, guests and channels; the SharePoint site inventory
+                if (_o.M365)
+                {
+                    m365 = new JsonObject();
+                    var people = new JsonObject();              // everyone who appears in a team, by object ID
+                    void Person(string id, string name, string upn, bool guest)
+                    {
+                        if (string.IsNullOrEmpty(id) || people.ContainsKey(id)) return;
+                        people[id] = new JsonObject { ["name"] = name, ["upn"] = upn, ["guest"] = guest };
+                    }
+                    bool IsGuest(JsonObject u) => S(u, "userType").Length > 0                 // same rule as for everyone else
+                        ? S(u, "userType") == "Guest" : S(u, "userPrincipalName").IndexOf("#EXT#", StringComparison.OrdinalIgnoreCase) >= 0;
+                    var teams = new JsonArray();
+                    var nickToTeam = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+                    var teamGroups = new List<JsonObject>();
+                    Step("Reading Microsoft Teams…");
+                    await TryStep("Microsoft Teams", async () =>
+                    {
+                        teamGroups = await _api.GraphListAsync("/groups?$filter=resourceProvisioningOptions/Any(x:x eq 'Team')&$select=id,displayName,visibility,createdDateTime,mailNickname&$top=999", ct).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                    if (teamGroups.Count > _o.MaxTeams)
+                    {
+                        _warnings.Add($"Only the first {_o.MaxTeams} of {teamGroups.Count} teams were read.");
+                        teamGroups = teamGroups.Take(_o.MaxTeams).ToList();
+                    }
+                    var channelsDenied = false; var channelMembersDenied = false; var teamErrors = 0; var i = 0;
+                    foreach (var g in teamGroups)
+                    {
+                        if (++i % 25 == 0) Step($"Teams: {i} of {teamGroups.Count}…");
+                        var tid = S(g, "id");
+                        var team = new JsonObject { ["id"] = tid, ["name"] = S(g, "displayName"), ["visibility"] = S(g, "visibility").ToLowerInvariant(),
+                            ["created"] = S(g, "createdDateTime"), ["nick"] = S(g, "mailNickname"),
+                            ["owners"] = new JsonArray(), ["members"] = new JsonArray(), ["guests"] = 0, ["channels"] = new JsonArray() };
+                        try
+                        {
+                            var tOwners = new JsonArray(); var tMembers = new JsonArray(); var tGuests = 0;
+                            foreach (var o in await _api.GraphListAsync($"/groups/{tid}/owners?$select=id,displayName,userPrincipalName,userType&$top=999", ct).ConfigureAwait(false))
+                            {
+                                if (!S(o, "@odata.type").EndsWith("user", StringComparison.OrdinalIgnoreCase)) continue;
+                                Person(S(o, "id"), S(o, "displayName"), S(o, "userPrincipalName"), IsGuest(o)); tOwners.Add(S(o, "id"));
+                            }
+                            foreach (var m in await _api.GraphListAsync($"/groups/{tid}/members?$select=id,displayName,userPrincipalName,userType&$top=999", ct).ConfigureAwait(false))
+                            {
+                                if (!S(m, "@odata.type").EndsWith("user", StringComparison.OrdinalIgnoreCase)) continue;
+                                Person(S(m, "id"), S(m, "displayName"), S(m, "userPrincipalName"), IsGuest(m)); tMembers.Add(S(m, "id"));
+                                if (IsGuest(m)) tGuests++;
+                            }
+                            team["owners"] = tOwners; team["members"] = tMembers; team["guests"] = tGuests;
+                            var channels = new JsonArray();
+                            if (!channelsDenied)
+                            {
+                                try
+                                {
+                                    foreach (var c in await _api.GraphListAsync($"/teams/{tid}/channels?$select=id,displayName,membershipType", ct).ConfigureAwait(false))
+                                    {
+                                        var type = S(c, "membershipType").Length > 0 ? S(c, "membershipType") : "standard";
+                                        var ch = new JsonObject { ["id"] = S(c, "id"), ["name"] = S(c, "displayName"), ["type"] = type };
+                                        if ((type == "private" || type == "shared") && !channelMembersDenied)   // these have their own members
+                                        {
+                                            try
+                                            {
+                                                var cm = new JsonArray();
+                                                foreach (var x in await _api.GraphListAsync($"/teams/{tid}/channels/{Uri.EscapeDataString(S(c, "id"))}/members", ct).ConfigureAwait(false))
+                                                {
+                                                    var uid = S(x, "userId");
+                                                    if (uid.Length == 0) continue;
+                                                    // people from another organization (shared channels, guests) count as guests
+                                                    var home = S(x, "tenantId");
+                                                    Person(uid, S(x, "displayName"), S(x, "email"), home.Length > 0 && !string.Equals(home, _tenant, StringComparison.OrdinalIgnoreCase));
+                                                    cm.Add(uid);
+                                                }
+                                                ch["members"] = cm;
+                                            }
+                                            catch (ApiException ex) when (ex.Status == 401 || ex.Status == 403)
+                                            {
+                                                channelMembersDenied = true;
+                                                _warnings.Add("Members of private and shared channels skipped: needs the ChannelMember.Read.All permission (" + ex.Message + ")");
+                                            }
+                                        }
+                                        channels.Add(ch);
+                                    }
+                                }
+                                catch (ApiException ex) when (ex.Status == 401 || ex.Status == 403)
+                                {
+                                    channelsDenied = true;
+                                    _warnings.Add("Teams channels skipped: needs the Channel.ReadBasic.All and ChannelMember.Read.All permissions (" + ex.Message + ")");
+                                }
+                            }
+                            team["channels"] = channels;
+                        }
+                        catch (Exception ex) when (!(ex is OperationCanceledException)) { teamErrors++; }
+                        teams.Add(team);
+                        if (S(team, "nick").Length > 0) nickToTeam[S(team, "nick")] = team;
+                    }
+                    if (teamErrors > 0) _warnings.Add($"{teamErrors} team(s) couldn't be read completely.");
+
+                    // the SharePoint site inventory comes from Microsoft 365's usage report: every site in the tenant
+                    var sites = new JsonArray();
+                    var concealed = false; string reportDate = null;
+                    Step("Reading the SharePoint site inventory…");
+                    await TryStep("SharePoint sites (needs Reports.Read.All and a reports or admin role)", async () =>
+                    {
+                        var csv = await _api.GraphGetTextAsync("/reports/getSharePointSiteUsageDetail(period='D30')", ct).ConfigureAwait(false);
+                        var rows = Csv(csv);
+                        if (rows.Count == 0) return;
+                        var head = rows[0].Select(h => h.Trim().TrimStart('\uFEFF')).ToList();
+                        int Col(string name) => head.FindIndex(h => string.Equals(h, name, StringComparison.OrdinalIgnoreCase));
+                        string Cell(List<string> r, string name) { var k = Col(name); return k >= 0 && k < r.Count ? r[k].Trim() : ""; }
+                        long Num(List<string> r, string name) => long.TryParse(Cell(r, name), out var v) ? v : 0;
+                        foreach (var r in rows.Skip(1))
+                        {
+                            if (r.Count < 3 || Cell(r, "Is Deleted").Equals("True", StringComparison.OrdinalIgnoreCase)) continue;
+                            reportDate = reportDate ?? Cell(r, "Report Refresh Date");
+                            var url = Cell(r, "Site URL");
+                            if (url.Length == 0 || !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) concealed = true;
+                            var site = new JsonObject
+                            {
+                                ["id"] = Cell(r, "Site Id"), ["url"] = url, ["owner"] = Cell(r, "Owner Display Name"), ["ownerUpn"] = Cell(r, "Owner Principal Name"),
+                                ["template"] = Cell(r, "Root Web Template"), ["lastActivity"] = Cell(r, "Last Activity Date"), ["files"] = Num(r, "File Count"),
+                                ["storage"] = Num(r, "Storage Used (Byte)"), ["externalSharing"] = Cell(r, "External Sharing"),
+                                ["anonymousLinks"] = Num(r, "Anonymous Link Count"), ["guestLinks"] = Num(r, "Secure Link For Guest Count")
+                            };
+                            // which team a site belongs to: /sites/<mailNickname> (or <mailNickname>-<channel> for a channel site)
+                            var path = url.Length > 0 && Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.AbsolutePath.Trim('/') : "";
+                            var leaf = path.Contains("/") ? path.Substring(path.IndexOf('/') + 1) : "";
+                            site["name"] = leaf.Length > 0 ? Uri.UnescapeDataString(leaf) : (url.Length > 0 && Uri.TryCreate(url, UriKind.Absolute, out var root) ? root.Host : Cell(r, "Site Id"));
+                            JsonObject team = null;
+                            if (leaf.Length > 0 && !nickToTeam.TryGetValue(leaf, out team))
+                            {
+                                var dash = leaf.LastIndexOf('-');           // longest team name first: Proj-Alpha-General → Proj-Alpha, then Proj
+                                while (team == null && dash > 0) { nickToTeam.TryGetValue(leaf.Substring(0, dash), out team); dash = dash > 0 ? leaf.LastIndexOf('-', dash - 1) : -1; }
+                                if (team != null && !S(site, "template").StartsWith("TEAMCHANNEL", StringComparison.OrdinalIgnoreCase)) team = null;
+                            }
+                            if (team == null && S(site, "template").StartsWith("GROUP", StringComparison.OrdinalIgnoreCase))
+                                team = teams.OfType<JsonObject>().FirstOrDefault(t => string.Equals(S(t, "name"), S(site, "owner"), StringComparison.OrdinalIgnoreCase));
+                            if (team != null)
+                            {
+                                site["team"] = S(team, "id");
+                                if (S(site, "template").StartsWith("TEAMCHANNEL", StringComparison.OrdinalIgnoreCase)) site["channelSite"] = true;
+                                else team["site"] = S(site, "id");
+                            }
+                            sites.Add(site);
+                        }
+                        if (concealed) _warnings.Add("SharePoint site names are concealed in Microsoft 365 reports (admin setting \"Display concealed user, group and site names in all reports\"), so sites can't be named or linked to teams.");
+                    }).ConfigureAwait(false);
+                    m365["teams"] = teams; m365["sites"] = sites; m365["people"] = people;
+                    m365["reportDate"] = reportDate; m365["concealed"] = concealed;
+                }
+
             }
             else
             {
@@ -856,7 +1040,8 @@ namespace TenantWise.Core
                     ["azure"] = azure, ["entra"] = entra, ["members"] = members, ["policies"] = policies, ["ca"] = ca,
                     ["packages"] = packages, ["packageAssignments"] = packageAssignments, ["packageRequests"] = packageRequests, ["groupEligible"] = groupEligible,
                     ["apps"] = apps, ["appPerms"] = appPerms, ["groupOwners"] = groupOwners, ["nested"] = nested, ["crossTenant"] = crossTenant
-                }
+                },
+                ["m365"] = m365
             };
         }
     }

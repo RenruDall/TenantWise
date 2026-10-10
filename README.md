@@ -76,6 +76,12 @@ Install it, sign in with your work account (MFA as usual), click **Scan now**. I
 - **Mind map** — tenant root → management groups (including empty landing zones) → subscriptions → resource groups → resources.
   Click any scope to see its **landing-zone path**, **who has access there** (assigned or inherited) and **which policies apply**
   (inherited, enforcement mode, non-compliant count).
+- **Follow relations** — double-click anything on the map, the network or the access graph: TenantWise shows only that
+  item and what is directly related to it (its place in the hierarchy, what it contains, network connections such as NSGs,
+  subnets, NICs, public IPs and private links, and who holds a role on it). Double-click any of those to add their
+  relations too, and keep going until nothing new appears. People and groups lead on to their roles, groups, members and
+  access packages; Entra roles and access packages to who holds them. *Back one step* undoes the last double-click,
+  *Close* returns to the full map.
 - **Topology** — how resources connect: NIC ↔ VM, subnets, VNet peerings, NSGs, route tables (and the firewall they route to),
   NAT gateways, public IPs, private endpoints, load balancers, application gateways, VPN/ExpressRoute connections,
   private DNS links, AKS, App Service, disks. Large estates start with the network backbone; click a subnet to open it.
@@ -107,8 +113,19 @@ Install it, sign in with your work account (MFA as usual), click **Scan now**. I
   Each finding names the ISO/IEC 27001:2022 Annex A control and the SOX IT general control area it belongs to.
 - **Audit** — evidence for ISO 27001 and SOX audits: how the data was produced, a control summary, the audit scope,
   the **periodic access review** with sign-off, and the chained activity log ([details](#iso-27001-and-sox)).
-- **Changes** — compares any two scans: who gained or lost access (roles, group membership, access packages),
-  moved subscriptions, new or removed resources and connections, policy and enforcement changes.
+- **Microsoft 365** — a branch on the map under the tenant: **Teams** (owners, members, guests, private and shared
+  channels with their members) and **SharePoint sites** (address, owner, last activity, storage, files, external sharing
+  and "Anyone" links), each team linked to its site. People show the teams and channels they belong to, and *Follow
+  relations* goes from a person to their teams, from a team to its members, channels and site and back. Findings: teams
+  without an owner or with only one, teams with guests, public teams, shared channels, sites with "Anyone" links and sites
+  unused for 180 days. Team owners, members, channel members and site owners are part of the access export and the
+  **access review** (see below). Sharing links on single files and SharePoint's own permission groups are not read.
+- **Show or hide parts of the map** — the checkmarks above the map turn *Azure subscriptions*, *Teams* and
+  *SharePoint sites* on and off, next to the resource categories. *Settings → On the map* sets what the map shows when
+  it opens.
+- **Changes** — compares any two scans: who gained or lost access (roles, group membership, access packages, team
+  owners and members), moved subscriptions, new or removed resources, connections, teams and SharePoint sites, team
+  visibility changes, new "Anyone" links, policy and enforcement changes.
 
 ### Install
 1. Download **`TenantWise-Setup-<version>.exe`** from the latest release.
@@ -172,12 +189,15 @@ but it covers what they ask for in access and cloud-governance controls:
 
 **Running an access review (SOX quarterly user access review, ISO A.5.18)**
 1. *Audit → Audit scope:* tick the subscriptions in scope (for SOX: those running financially relevant systems) and
-   confirm which are production.
+   confirm which are production. Under *Microsoft 365*, choose which Teams and SharePoint access the review covers: team
+   owners, guests and people from other organizations, all other team and channel members (off by default: in large
+   tenants that is most of the company), and owners of sites that don't belong to a team.
 2. *Audit → Access review:* decide each access (*Keep*, *Remove* with reason or ticket, *Ask* the owner). Decisions save
    as you go.
 3. Sign off: confirm the statement, *Sign off and save evidence*. The reviewer is the account you signed in with, and the
    time is set by the app. TenantWise saves the signed review (HTML) and its population (CSV), both hashed and logged,
-   and only accepts a sign-off whose evidence file it saved itself.
+   and only accepts a sign-off whose evidence file it saved itself. The signed review keeps the scope it was signed
+   with, so changing the audit scope later doesn't change what it covered.
 4. *Save audit report* for the full evidence pack: provenance, control summary, review status, findings, privileged
    access register, policies, changes since the compared scan, scan notes.
 
@@ -235,6 +255,12 @@ account enabled and last sign-in: the population auditors sample from.
 - **Access packages and PIM for Groups** (optional): `EntitlementManagement.Read.All` and
   `PrivilegedEligibilitySchedule.Read.AzureADGroup`. Without them those parts are skipped and noted.
 - **Last sign-in** (optional, for unused accounts): `AuditLog.Read.All`; needs Entra ID P1. Without it the check is skipped and noted.
+- **Microsoft 365** (optional): teams, their owners and members are covered by `Directory.Read.All`. Private and shared
+  channels need `Channel.ReadBasic.All` and `ChannelMember.Read.All`; SharePoint sites come from the Microsoft 365 usage
+  report and need `Reports.Read.All`, and the signed-in person must also hold a role that may read usage reports
+  (for example *Global Reader* or *Reports Reader*). If the organization conceals names in reports
+  (*Microsoft 365 admin center → Settings → Org settings → Reports*), sites appear without names and can't be linked to
+  teams; TenantWise says so. Without these permissions those parts are skipped and noted.
 - PIM-eligible roles need Entra ID P2, access packages Entra ID Governance (or P2); without them the app shows what
   exists and notes the gap.
 - Apps, their secrets and owners, Microsoft Graph application permissions, group owners and cross-tenant access settings
@@ -254,7 +280,8 @@ minutes, done by a Global Administrator (or an Application Administrator togethe
 3. **API permissions → Add a permission**, all *Delegated*:
    *Azure Service Management → user_impersonation*;
    *Microsoft Graph → Directory.Read.All, RoleManagement.Read.Directory, Policy.Read.All*,
-   and for access packages, PIM for Groups and last sign-in *EntitlementManagement.Read.All, PrivilegedEligibilitySchedule.Read.AzureADGroup, AuditLog.Read.All*.
+   and for access packages, PIM for Groups and last sign-in *EntitlementManagement.Read.All, PrivilegedEligibilitySchedule.Read.AzureADGroup, AuditLog.Read.All*,
+   and for Teams channels and SharePoint sites *Channel.ReadBasic.All, ChannelMember.Read.All, Reports.Read.All*.
    Then **Grant admin consent** for your tenant. Don't add *AppRoleAssignment.ReadWrite.All* or *Application.ReadWrite.All*
    here: Microsoft asks a Global Administrator for them the first time they save in *Users*. When it does, **don't tick
    "Consent on behalf of your organization"**: these two must only ever be approved for that administrator. The *Users*

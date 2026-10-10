@@ -49,7 +49,7 @@ namespace TenantWise.App
 
         // Links TenantWise may open in the browser. Anything else (for example from a name in a scan) is ignored.
         private static readonly string[] ExternalHosts = { "github.com", "portal.azure.com", "entra.microsoft.com", "login.microsoftonline.com",
-            "go.microsoft.com", "learn.microsoft.com", "aka.ms" };
+            "go.microsoft.com", "learn.microsoft.com", "aka.ms", "sharepoint.com" };
         private static string Version => Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
         private readonly WebView2 _web = new WebView2();
@@ -424,7 +424,7 @@ namespace TenantWise.App
                         if ((args["settings"]?.ToJsonString() ?? "").Length > 262144) throw new InvalidOperationException("Audit scope is too large.");
                         WriteAudit("settings", args["settings"] as JsonObject ?? new JsonObject());
                         Log("scope.changed", new JsonObject { ["inScope"] = (args["settings"]?["inScope"] as JsonArray)?.Count ?? 0,
-                            ["production"] = (args["settings"]?["production"] as JsonArray)?.Count ?? 0 });
+                            ["production"] = (args["settings"]?["production"] as JsonArray)?.Count ?? 0, ["microsoft365"] = args["settings"]?["m365"]?.DeepClone() });
                         break;
                     case "saveReview":                                   // access review draft or sign-off, kept with its scan
                     {
@@ -461,6 +461,8 @@ namespace TenantWise.App
                                 ["evidenceSha256"] = evidence,
                                 ["selfReviewed"] = int.TryParse(Api.Str(incomingSign["selfReviewed"]), out var own) ? own : 0,
                                 ["populationSha256"] = Api.Str(incomingSign["populationSha256"]),
+                                // what the review covered (subscriptions, Microsoft 365 options), so the signed population stays as it was
+                                ["scope"] = incomingSign["scope"] is JsonObject signScope && signScope.ToJsonString().Length < 65536 ? signScope.DeepClone() : null,
                                 ["scanSha256"] = EvidenceLog.Sha256Hex(ReadSnapshot(_current) ?? "")
                             };
                         }

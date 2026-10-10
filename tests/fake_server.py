@@ -285,6 +285,21 @@ class Handler(BaseHTTPRequestHandler):
             app = g.get("applications_tw")
             want = re.search(r"appId eq '([^']+)'", q["$filter"][0]).group(1)
             return paged([app] if app and app["appId"] == want else [])
+        if path == "/groups" and q.get("$filter", [""])[0] == "resourceProvisioningOptions/Any(x:x eq 'Team')":
+            return paged(g.get("teams", []))
+        m4 = re.match(r"^/groups/([^/]+)/members$", path)
+        if m4:
+            return paged(g.get("groupMembersM365", {}).get(m4.group(1), []))
+        m4 = re.match(r"^/teams/([^/]+)/channels$", path)
+        if m4:
+            return paged(g.get("teamChannels", {}).get(m4.group(1), []))
+        m4 = re.match(r"^/teams/([^/]+)/channels/([^/]+)/members$", path)
+        if m4:
+            return paged(g.get("channelMembers", {}).get(m4.group(1) + "/" + urllib.parse.unquote(m4.group(2)), []))
+        if urllib.parse.unquote(path) == "/reports/getSharePointSiteUsageDetail(period='D30')":
+            body = (g.get("siteReport") or "\ufeffReport Refresh Date,Site Id,Site URL,Owner Display Name,Is Deleted\r\n").encode("utf-8")
+            self.send_response(200); self.send_header("Content-Type", "application/octet-stream"); self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
         if path == "/groups" and q.get("$filter", [""])[0].startswith("startswith(displayName,"):
             t = re.search(r"startswith\(displayName,'((?:[^']|'')*)'\)", q["$filter"][0]).group(1).replace("''", "'").lower()
             return paged([{"id": o["id"], "displayName": o["displayName"]} for o in g["objects"].values() if o["@odata.type"].endswith("group") and o["displayName"].lower().startswith(t)][:15])
