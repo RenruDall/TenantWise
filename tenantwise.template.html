@@ -695,6 +695,7 @@ const subOf = sc => { const m = /^\/subscriptions\/[^/]+/.exec(sc || ""); return
 // ======================================================= Microsoft 365: teams, channels, SharePoint sites
 const M365 = DATA.m365 || null;
 const TEAMS = (M365 && M365.teams) || [], SITES = (M365 && M365.sites) || [];
+const hasM365 = () => !!(M365 && (TEAMS.length || SITES.length));
 const teamById = new Map(TEAMS.map(t => [t.id, t])), siteById = new Map(SITES.map(x => [x.id, x]));
 const teamsOf = new Map();                   // person -> [{team, owner}]
 for (const t of TEAMS) {
@@ -875,6 +876,18 @@ $("meta").textContent = DATA.meta.empty ? "" :
   `${DATA.meta.demo ? "Demo data · " : ""}Scanned ${new Date(DATA.meta.generated).toLocaleString()} · ${DATA.meta.scope} · ` +
   `${resCount} resource${resCount === 1 ? "" : "s"} · ${relEdges.length} connection${relEdges.length === 1 ? "" : "s"} · ` +
   `${ACC.principals.length} ${ACC.principals.length === 1 ? "identity" : "identities"}`;
+function mapGaps() {                        // why the map shows less than expected: said on the map, not only in the scan notes
+  const out = [], notes = DATA.meta.warnings || [];
+  if (!SUBS.length) out.push(`No Azure subscriptions are visible to ${(DATA.meta.provenance || {}).account || "the account that scanned"}: it needs at least Reader on the subscriptions or on the tenant root group.`);
+  if (!hasM365()) {
+    const m = notes.filter(w => /Teams|SharePoint|channel/i.test(w));
+    if (DATA.meta.entra === false) out.push("Teams and SharePoint weren't read: they need the Entra permissions.");
+    else if (!("m365" in DATA) || DATA.m365 == null) out.push("This scan is from before TenantWise read Teams and SharePoint: click Scan now to add them.");
+    else if (m.length) out.push(`Teams and SharePoint: ${m[0]}${m.length > 1 ? ` (and ${m.length - 1} more note${m.length > 2 ? "s" : ""} under Audit)` : ""}`);
+    else out.push("No teams and no SharePoint sites were found. Sites come from the Microsoft 365 usage report (Reports.Read.All and a reports role).");
+  }
+  return out.join(" ");
+}
 function updateWarn() {
   if (trail) {
     const n = trail.nodes.size, open = [...trail.nodes.keys()].filter(k => !k.startsWith("more:") && !trail.opened.has(k)).length;
@@ -885,6 +898,7 @@ function updateWarn() {
   }
   let msg = "";
   if (view === "mind" && !AUTO_EXPAND) msg = `${resCount} resources: resource groups start collapsed. Click one to open it, or use Expand all.`;
+  if (view === "mind") msg = [msg, mapGaps()].filter(Boolean).join(" ");
   if (view === "topo" && topoCompact) msg = `Large estate: the topology starts with the network backbone. Click a subnet to show what's connected to it.`;
   if (view === "access" && DATA.meta.entra === false) msg = `Entra wasn't read for this scan: identities show as object IDs, group members and directory roles are missing.`;
   $("warn").innerHTML = msg ? `<p class="warn">${esc(msg)}</p>` : "";
@@ -1720,7 +1734,6 @@ const AUDIT = Object.assign({ inScope: [], production: [] }, (APP && APP.auditSe
 const M365_REVIEW = [["owners", "Team owners", true], ["guests", "Guests and people from other organizations in teams and channels", true],
   ["members", "All other team and channel members", false], ["sites", "Owners of SharePoint sites that don't belong to a team", true]];
 AUDIT.m365 = Object.assign(Object.fromEntries(M365_REVIEW.map(([k, , d]) => [k, d])), AUDIT.m365 || {});
-const hasM365 = () => !!(M365 && (TEAMS.length || SITES.length));
 const m365ReviewText = opts => { opts = opts === undefined ? AUDIT.m365 : opts; const on = !opts ? [] : M365_REVIEW.filter(([k]) => opts[k]).map(([, l]) => l.charAt(0).toLowerCase() + l.slice(1)); return hasM365() && on.length ? "; Microsoft 365: " + on.join(", ") : ""; };
 const PROD_RE = /(^|[^a-z])(prod|prd|production)([^a-z]|$)/i, NONPROD_RE = /non-?prod|pre-?prod|(^|[^a-z])(dev|test|qa|uat|sandbox|stage|staging)([^a-z]|$)/i;
 const SUBS = DATA.nodes.filter(n => n.cat === "sub");
