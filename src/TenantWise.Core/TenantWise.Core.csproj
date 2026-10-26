@@ -16,6 +16,6 @@
     <Copyright>© 2026 Michael Ladurner · Apache License 2.0</Copyright>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <PackageReference Include="System.Text.Json" Version="10.0.14" />
   </ItemGroup>
 </Project>
