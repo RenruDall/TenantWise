@@ -148,7 +148,7 @@ namespace TenantWise.Core
                 ArmCalls++;
                 var r = await SendAsync("arm", HttpMethod.Get, url, null, ct).ConfigureAwait(false);
                 if (r?["value"] is JsonArray v) foreach (var x in v) if (x is JsonObject o) items.Add(o);
-                url = Str(r?["nextLink"]);
+                url = NextLink(Str(r?["nextLink"]), _ep.Arm);
             }
             return items;
         }
@@ -163,7 +163,7 @@ namespace TenantWise.Core
                 GraphCalls++;
                 var r = await SendAsync("graph", HttpMethod.Get, url, null, ct).ConfigureAwait(false);
                 if (r?["value"] is JsonArray v) foreach (var x in v) if (x is JsonObject o) items.Add(o);
-                url = Str(r?["@odata.nextLink"]);
+                url = NextLink(Str(r?["@odata.nextLink"]), _ep.Graph);
             }
             return items;
         }
@@ -173,7 +173,7 @@ namespace TenantWise.Core
         {
             GraphCalls++;
             var url = path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || path.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-                ? path : _ep.Graph + path;                                   // absolute: a nextLink from a previous page
+                ? NextLink(path, _ep.Graph) : _ep.Graph + path;              // absolute: a nextLink from a previous page
             return await SendAsync("graph", HttpMethod.Get, url, null, ct).ConfigureAwait(false) as JsonObject;
         }
 
@@ -196,6 +196,17 @@ namespace TenantWise.Core
         {
             GraphCalls++;
             return await SendAsync("graph", HttpMethod.Post, _ep.Graph + path, body.ToJsonString(), ct).ConfigureAwait(false);
+        }
+
+        /// <summary>A next-page link is followed only on the service that sent it (same scheme, host and port), so the
+        /// access token, which is attached to every request, never goes anywhere else.</summary>
+        public static string NextLink(string link, string service)
+        {
+            if (string.IsNullOrEmpty(link)) return null;
+            if (Uri.TryCreate(link, UriKind.Absolute, out var next) && Uri.TryCreate(service, UriKind.Absolute, out var home)
+                && next.Scheme == home.Scheme && string.Equals(next.Host, home.Host, StringComparison.OrdinalIgnoreCase) && next.Port == home.Port)
+                return link;
+            throw new ApiException(0, "unexpected_link", "A page of results pointed to another address (" + (Uri.TryCreate(link, UriKind.Absolute, out var u) ? u.Host : "invalid") + "); it wasn't followed.");
         }
 
         /// <summary>A JSON value as a string ("" for null/missing). Numbers and booleans are converted.</summary>

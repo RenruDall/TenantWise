@@ -14,7 +14,7 @@ dependencies) are not re-signed; they keep their publishers' own signatures.
 
 ## How a release is signed
 
-1. A version tag (`v*`) starts the [GitHub Actions workflow](.github/workflows/main.yml) on GitHub's own Windows runners.
+1. A version tag (`v*`) starts the [GitHub Actions workflow](.github/workflows/main.yaml) on GitHub's own Windows runners.
 2. The workflow runs the tests, builds the program, and sends the program files to SignPath.
 3. Each signing request is **approved manually** by an approver before anything is signed.
 4. The signed program files are packed into the installer and the portable zip; the installer is signed the same way.

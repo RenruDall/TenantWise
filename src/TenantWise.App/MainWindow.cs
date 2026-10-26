@@ -48,8 +48,11 @@ namespace TenantWise.App
             () => File.Exists(AnchorFile) ? Protect.ReadText(AnchorFile) : null, a => Protect.WriteText(AnchorFile, a));
 
         // Links TenantWise may open in the browser. Anything else (for example from a name in a scan) is ignored.
-        private static readonly string[] ExternalHosts = { "github.com", "portal.azure.com", "entra.microsoft.com", "login.microsoftonline.com",
-            "go.microsoft.com", "learn.microsoft.com", "aka.ms", "sharepoint.com" };
+        // GitHub only for TenantWise's own project; SharePoint only for sites in the scan on screen (see ShowView).
+        private static readonly string[] ExternalHosts = { "portal.azure.com", "entra.microsoft.com", "login.microsoftonline.com",
+            "go.microsoft.com", "learn.microsoft.com", "aka.ms" };
+        private const string ProjectPath = "/RenruDall/TenantWise";
+        private readonly HashSet<string> _siteHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static string Version => Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
         private readonly WebView2 _web = new WebView2();
@@ -165,6 +168,15 @@ namespace TenantWise.App
             var mayRead = _access.GlobalAdmin || _access.Features.Length > 0;                   // no feature: no scan data in the page
             if (_auth != null && _auth.SignedIn && _current != null && mayRead) data = ReadSnapshot(_current);
             var scanHash = data != null ? EvidenceLog.Sha256Hex(data) : null;
+            _siteHosts.Clear();                                                    // SharePoint links: only this scan's sites
+            if (data != null)
+                try
+                {
+                    foreach (var site in (JsonNode.Parse(data)?["m365"]?["sites"] as JsonArray)?.OfType<JsonObject>() ?? Enumerable.Empty<JsonObject>())
+                        if (Uri.TryCreate(Api.Str(site["url"]), UriKind.Absolute, out var su) && su.Scheme == Uri.UriSchemeHttps
+                            && su.Host.EndsWith(".sharepoint.com", StringComparison.OrdinalIgnoreCase)) _siteHosts.Add(su.Host);
+                }
+                catch (Exception) { /* no site links then */ }
             if (data == null)
             {
                 _current = null;
@@ -232,13 +244,18 @@ namespace TenantWise.App
                 .Replace("/*__APP__*/null", appJson.Replace("/", "\\/"));
         }
 
-        /// <summary>A line for the end of every exported report: where the activity log stood, so the copy can be checked later.</summary>
-        private string EvidenceFooter()
+        /// <summary>Presentation mode: people's names and emails are replaced on screen and in everything saved.</summary>
+        private static bool Masked() => string.Equals(Api.Str(ReadPrefs()?["mask"]), "true", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>A line for the end of every exported report: where the activity log stood, so the copy can be checked later.
+        /// In presentation mode the account, Windows user and PC aren't named (the activity log still records them).</summary>
+        private string EvidenceFooter(bool masked)
         {
             var (lines, hash, since) = Activity.Head();
+            var who = masked ? "a masked account (presentation mode)"
+                : Html(_auth?.Account) + " (Windows user " + Html(Environment.UserDomainName + "\\" + Environment.UserName) + " on " + Html(Environment.MachineName) + ")";
             return "<p class=\"meta\" style=\"margin-top:24px;font-size:11px;color:#555\">Evidence: saved with TenantWise " + Version +
-                " by " + Html(_auth?.Account) + " (Windows user " + Html(Environment.UserDomainName + "\\" + Environment.UserName) + " on " + Html(Environment.MachineName) +
-                "). Activity log at saving: entry " + lines + ", SHA-256 " + hash + (since > 0 ? ", anchored since entry " + since : ", not anchored") +
+                " by " + who + ". Activity log at saving: entry " + lines + ", SHA-256 " + hash + (since > 0 ? ", anchored since entry " + since : ", not anchored") +
                 ". Times are UTC from this PC's clock.</p>";
         }
 
@@ -645,15 +662,20 @@ namespace TenantWise.App
                 DefaultExt = ".html"
             };
             if (dlg.ShowDialog(this) != true) return new JsonObject { ["cancelled"] = true };
-            // The offline page keeps this person's features and presentation mode (masked names), and says where the log stood.
+            // The offline page keeps this person's features and presentation mode, and says where the log stood. In
+            // presentation mode the names are replaced in the data itself, so the file holds no real name or email.
+            var masked = Masked();
+            var scanSha = EvidenceLog.Sha256Hex(data);
+            var review = ReadAudit("reviews\\" + name);
+            if (masked) data = PresentationMask.Apply(data, new JsonNode[] { review });
             var reportApp = new JsonObject
             {
-                ["report"] = true, ["version"] = Version, ["account"] = _auth?.Account, ["scanSha256"] = EvidenceLog.Sha256Hex(data),
-                ["prefs"] = ReadPrefs(), ["access"] = _access.ToJson(), ["auditSettings"] = ReadAudit("settings"), ["review"] = ReadAudit("reviews\\" + name)
+                ["report"] = true, ["version"] = Version, ["account"] = masked ? PresentationMask.MaskedAccount : _auth?.Account, ["scanSha256"] = scanSha,
+                ["prefs"] = ReadPrefs(), ["access"] = _access.ToJson(), ["auditSettings"] = ReadAudit("settings"), ["review"] = review
             };
             var features = (reportApp["access"]["features"] as JsonArray)?.Select(Api.Str).Where(f => f != "admin").ToArray() ?? new string[0];
             reportApp["access"]["features"] = new JsonArray(features.Select(f => (JsonNode)JsonValue.Create(f)).ToArray());   // "who uses TenantWise" isn't in a report
-            var bytes = new UTF8Encoding(false).GetBytes(WithFooter(Page(data, reportApp.ToJsonString(), inlineLibrary: true), EvidenceFooter()));
+            var bytes = new UTF8Encoding(false).GetBytes(WithFooter(Page(data, reportApp.ToJsonString(), inlineLibrary: true), EvidenceFooter(masked)));
             File.WriteAllBytes(dlg.FileName, bytes);
             var sha = EvidenceLog.Sha256Hex(bytes);
             Log("report.saved", new JsonObject { ["scan"] = name, ["file"] = dlg.FileName, ["sha256"] = sha });
@@ -674,7 +696,7 @@ namespace TenantWise.App
                 DefaultExt = ext
             };
             if (dlg.ShowDialog(this) != true) return new JsonObject { ["cancelled"] = true };
-            if (ext == ".html") text = WithFooter(text, EvidenceFooter());              // where the activity log stood
+            if (ext == ".html") text = WithFooter(text, EvidenceFooter(Masked()));      // where the activity log stood
             var enc = new UTF8Encoding(ext == ".csv");                                  // BOM so Excel reads UTF-8
             var bytes = enc.GetPreamble().Concat(enc.GetBytes(text)).ToArray();
             File.WriteAllBytes(dlg.FileName, bytes);
@@ -877,10 +899,13 @@ namespace TenantWise.App
         private static Stream Resource(string name) =>
             Assembly.GetExecutingAssembly().GetManifestResourceStream(name) ?? throw new InvalidOperationException("Missing resource " + name);
 
-        private static void OpenExternal(string url)
+        private void OpenExternal(string url)
         {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps) return;
-            if (!ExternalHosts.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase) || u.Host.EndsWith("." + h, StringComparison.OrdinalIgnoreCase))) return;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps || !u.IsDefaultPort) return;
+            var project = u.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                && (u.AbsolutePath.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase) || u.AbsolutePath.StartsWith(ProjectPath + "/", StringComparison.OrdinalIgnoreCase));
+            var known = ExternalHosts.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase) || u.Host.EndsWith("." + h, StringComparison.OrdinalIgnoreCase));
+            if (!project && !known && !_siteHosts.Contains(u.Host)) return;
             try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); } catch (Exception) { }
         }
     }
