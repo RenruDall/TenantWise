@@ -66,8 +66,12 @@ jobs:
           foreach ($f in 'src/TenantWise.Core/packages.lock.json', 'src/TenantWise.App/packages.lock.json') {
             if (git ls-files $f) { "$f is committed: restore ran in locked mode"; continue }
             $missing++
-            $text = (Get-Content $f -Raw).Replace('%', '%25').Replace("`r", '').Replace("`n", '%0A')
-            "::notice title=Commit $f::$text"
+            $text = (Get-Content $f -Raw).Replace("`r", '')
+            $parts = [Math]::Ceiling($text.Length / 3000)                  # annotations hold at most 4096 characters
+            for ($i = 0; $i -lt $parts; $i++) {
+              $chunk = $text.Substring($i * 3000, [Math]::Min(3000, $text.Length - $i * 3000)).Replace('%', '%25').Replace("`n", '%0A')
+              "::notice title=Commit $f (part $($i + 1) of $parts)::$chunk"
+            }
           }
           if ($missing -and $env:GITHUB_REF_TYPE -eq 'tag') { "::error::Commit the package lock files before releasing."; exit 1 }
 
@@ -130,7 +134,8 @@ jobs:
           choco install innosetup -y --no-progress | Out-Null
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           $sig = Get-AuthenticodeSignature $iscc
-          "::notice title=Inno Setup::version $((Get-Item $iscc).VersionInfo.ProductVersion), signature $($sig.Status) $($sig.SignerCertificate.Subject)"
+          $pkg = (choco list innosetup --exact --limit-output) -join ' '
+          "::notice title=Inno Setup::package $pkg, file version $((Get-Item $iscc).VersionInfo.FileVersion), signature $($sig.Status) $($sig.SignerCertificate.Subject)"
           & $iscc "/DAppVersion=$env:VERSION" installer\TenantWise.iss
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Compress-Archive -Path src/TenantWise.App/bin/Release/net48/*, LICENSE, NOTICE, THIRD-PARTY-NOTICES.txt -DestinationPath "dist/TenantWise-portable-$env:VERSION.zip"

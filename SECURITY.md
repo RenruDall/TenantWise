@@ -98,7 +98,8 @@ TenantWise is maintained by one person in their own time, so these are goals, no
 - Limits: without that copy, someone with full control of the PC can replace the log and its anchor together, and times come from the PC's
   clock (UTC). Keep exports in an evidence store; the Entra audit log stays the authoritative record of tenant changes.
 - Access-review sign-offs record the signed-in account and the app's own time, are accepted only with evidence the app
-  saved itself, and can't be changed afterwards: a new review keeps the signed one as an earlier version.
+  saved itself, and can't be changed afterwards: a new review keeps the signed one as an earlier version. Review
+  evidence can't be saved or signed off in presentation mode, so signed evidence always names the real people.
 
 **The app itself**
 - The interface runs in Microsoft Edge WebView2, served from the app's memory. Navigation to any other address is
