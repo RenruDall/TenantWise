@@ -429,7 +429,7 @@ namespace TenantWise.App
                     {
                         var kind = Api.Str(args["kind"]) ?? "";
                         var reviewFile = kind == "access-review" || kind == "access-review-csv";
-                        if (reviewFile) { Need("audit", "access reviews"); Need("signoff", "signing off access reviews"); }
+                        if (reviewFile) { Need("audit", "access reviews"); Need("signoff", "signing off access reviews"); NotMasked(); }
                         else Need("export", "exporting");
                         var saved = SaveText(Api.Str(args["name"]), Api.Str(args["text"]), reviewFile ? kind : "export");
                         if (reviewFile && saved?["sha256"] != null && kind == "access-review") _reviewEvidence.Add(Api.Str(saved["sha256"]));
@@ -465,6 +465,7 @@ namespace TenantWise.App
                         if (incomingSign != null)
                         {
                             Need("signoff", "signing off access reviews");
+                            NotMasked();
                             var evidence = Api.Str(incomingSign["evidenceSha256"]);
                             if (evidence == null || !_reviewEvidence.Contains(evidence))
                                 throw new InvalidOperationException("Save the review evidence with TenantWise before signing off.");
@@ -554,6 +555,12 @@ namespace TenantWise.App
             }
             info["lastUsedOnThisPc"] = used;
             return info;
+        }
+
+        /// <summary>Signed access-review evidence must name the real people: refused while presentation mode is on.</summary>
+        private static void NotMasked()
+        {
+            if (Masked()) throw new InvalidOperationException("Presentation mode is on. Turn it off to save or sign off review evidence: it must name the real people.");
         }
 
         /// <summary>Refuses an action the person's TenantWise role doesn't include (the page hides it too).</summary>
