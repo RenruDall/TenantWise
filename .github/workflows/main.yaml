@@ -127,15 +127,16 @@ jobs:
             "$f signed by $($sig.SignerCertificate.Subject)"
           }
 
-      # The installer is built with Inno Setup from Chocolatey; the version is shown so it can be pinned below.
+      # The installer is built with Inno Setup from Chocolatey, pinned to one version, and its compiler must carry the
+      # publisher's valid signature before it builds anything that gets signed in TenantWise's name.
       - name: Installer and portable zip
         shell: pwsh
         run: |
-          choco install innosetup -y --no-progress | Out-Null
+          choco install innosetup --version 6.7.1 -y --no-progress | Out-Null
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           $sig = Get-AuthenticodeSignature $iscc
-          $pkg = (choco list innosetup --exact --limit-output) -join ' '
-          "::notice title=Inno Setup::package $pkg, file version $((Get-Item $iscc).VersionInfo.FileVersion), signature $($sig.Status) $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Pyrsys B\.V\.') { throw "Inno Setup compiler not signed by its publisher: $($sig.Status) $($sig.SignerCertificate.Subject)" }
+          "Inno Setup $((choco list innosetup --exact --limit-output) -join ' '), signed by $($sig.SignerCertificate.Subject)"
           & $iscc "/DAppVersion=$env:VERSION" installer\TenantWise.iss
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Compress-Archive -Path src/TenantWise.App/bin/Release/net48/*, LICENSE, NOTICE, THIRD-PARTY-NOTICES.txt -DestinationPath "dist/TenantWise-portable-$env:VERSION.zip"
