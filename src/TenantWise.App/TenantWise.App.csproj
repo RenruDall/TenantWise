@@ -27,8 +27,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
-    <PackageReference Include="Microsoft.Identity.Client" Version="4.86.0" />
-    <PackageReference Include="Microsoft.Identity.Client.Broker" Version="4.86.0" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.91.1" />
+    <PackageReference Include="Microsoft.Identity.Client.Broker" Version="4.91.1" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
