@@ -15,10 +15,10 @@ namespace TenantWise.App
         public static void WriteText(string path, string text)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            var tmp = path + ".tmp";                               // write, then swap: never a half-written file
+            var tmp = path + ".tmp";                               // write, then swap: never a half-written or missing file
             File.WriteAllBytes(tmp, ProtectedData.Protect(Encoding.UTF8.GetBytes(text), Entropy, DataProtectionScope.CurrentUser));
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(tmp, path);
+            if (File.Exists(path)) File.Replace(tmp, path, null, true);   // one step on NTFS: the old file or the new one, never neither
+            else File.Move(tmp, path);
         }
 
         public static string ReadText(string path) =>

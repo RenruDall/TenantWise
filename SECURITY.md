@@ -78,7 +78,10 @@ TenantWise is maintained by one person in their own time, so these are goals, no
   the data; programs running as the same Windows user can. `settings.json` holds only the last app (client) ID, unencrypted.
 - Switching tenant always signs out first; every tenant needs a fresh Microsoft sign-in. The tenant list holds no
   passwords or tokens.
-- Presentation mode replaces people's names and emails with placeholders on screen and in exports, saved reports included.
+- Presentation mode replaces people's names and emails with placeholders on screen and in exports. In a saved report the
+  names are replaced in the data itself before it is written (also in the saved access review), so the file holds no real
+  name or email, not even in its source. The report's evidence line then doesn't name the account, Windows user or PC;
+  the activity log on the PC still records them.
 - Exports (reports, CSV, signed reviews) are written only where you choose, unencrypted, so other tools can open them.
   They name people with administrative rights: treat them as confidential.
 
@@ -89,7 +92,9 @@ TenantWise is maintained by one person in their own time, so these are goals, no
   log, encrypted, so the app reports edited, removed, reordered or cut-off entries and a deleted log. Every exported report
   ends with the log position at saving, so copies in an evidence store can be checked against the log later.
 - The log can also be copied, entry by entry, to a folder outside the PC (for example a network share collected by a
-  SIEM); the app checks that every copied entry is still in the local log.
+  SIEM); the app checks that every copied entry is still in the local log. The copy only protects the log if the people
+  using TenantWise can add to it but not change or delete it: give them *Create files / write data* and *Create folders /
+  append data* on the share, without *Modify* or *Delete*, and let the SIEM collect it promptly.
 - Limits: without that copy, someone with full control of the PC can replace the log and its anchor together, and times come from the PC's
   clock (UTC). Keep exports in an evidence store; the Entra audit log stays the authoritative record of tenant changes.
 - Access-review sign-offs record the signed-in account and the app's own time, are accepted only with evidence the app
@@ -97,11 +102,15 @@ TenantWise is maintained by one person in their own time, so these are goals, no
 
 **The app itself**
 - The interface runs in Microsoft Edge WebView2, served from the app's memory. Navigation to any other address is
-  blocked; only links to a short list of Microsoft and GitHub sites open in your normal browser. Developer tools,
+  blocked; only links to a short list of Microsoft sites, TenantWise's own GitHub project and the SharePoint sites in
+  the scan on screen open in your normal browser. Developer tools,
   the context menu, browser shortcuts, downloads and device permissions are disabled in release builds.
 - A Content Security Policy stops the page from contacting the internet (no requests, remote images, fonts, frames or
   forms) and allows only scripts carrying a one-time nonce. All libraries, icons and the font are embedded.
-- Tenant data is embedded so that no name in a scan can change or break the page.
+- Tenant data is embedded so that no name in a scan can change or break the page, and every name is escaped before it is
+  shown. Exported reports (audit, access review, offboarding, summary) carry their own policy that runs no scripts and
+  loads nothing.
+- The access token is only ever sent to Microsoft's services: a next-page link that points anywhere else stops the scan.
 - Messages from the page are only accepted from the app's own local origin, and file names are checked before anything
   is written.
 - The installer installs for the current user only and needs no administrator rights. No app ID is built in.

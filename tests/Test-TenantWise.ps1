@@ -124,6 +124,38 @@ try {
     Expect 'Tenant name'                   ($d.meta.tenantName -eq $exp.tenantName) $d.meta.tenantName
     Expect 'Denied management group noted' (@($d.meta.warnings | Where-Object { $_ -match $exp.deniedWarning }).Count -gt 0) "$(@($d.meta.warnings).Count) scan notes"
 
+    Write-Host "`nPresentation mode (saved reports)" -ForegroundColor White
+    $dataJson = [System.Text.Json.Nodes.JsonNode]::Parse($json)['data'].ToJsonString()     # the scan as the app saves it
+    $maskedJson = [TenantWise.Core.PresentationMask]::Apply($dataJson)
+    $masked = $maskedJson | ConvertFrom-Json -Depth 30
+    $people = @($d.access.principals | Where-Object { $_.kind -eq 'user' -and -not $_.unresolved })
+    $real = @($people | ForEach-Object { $_.name; $_.upn }) + @($d.m365.people.PSObject.Properties.Value | ForEach-Object { $_.name; $_.upn }) +
+            @($d.m365.sites | Where-Object { -not $_.team } | ForEach-Object { $_.owner; $_.ownerUpn }) + @($d.meta.provenance.account)
+    $real = @($real | Where-Object { $_ -and $_.Length -gt 3 } | Sort-Object -Unique)
+    $leaks = @($real | Where-Object { $maskedJson.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+    Expect 'No real name or email left'    ($real.Count -gt 5 -and $leaks.Count -eq 0) "$($real.Count) checked$(if ($leaks) { '; still there: ' + ($leaks | Select-Object -First 5) -join ', ' })"
+    Expect 'Every identity kept'           (@($masked.access.principals).Count -eq @($d.access.principals).Count -and @($masked.nodes).Count -eq @($d.nodes).Count) "$(@($masked.access.principals).Count) identities"
+    $pm = @($masked.access.principals | Where-Object { $_.kind -eq 'user' -and -not $_.unresolved })
+    Expect 'Placeholders like the screen'  (($pm | Where-Object { $_.name -notmatch '^(User|Guest) \d{3}$' }).Count -eq 0) "$($pm[0].name), $($pm[0].upn)"
+    $ownerKept = @($d.m365.sites | Where-Object ownerUpn | ForEach-Object {
+        $site = $_; $p = $people | Where-Object { $_.upn -and $_.upn -eq $site.ownerUpn } | Select-Object -First 1
+        if ($p) { $mp = $masked.access.principals | Where-Object id -eq $p.id; $ms = $masked.m365.sites | Where-Object id -eq $site.id; $ms.ownerUpn -eq $mp.upn } })
+    Expect 'Site owners still linked'      (-not ($ownerKept -contains $false)) "$($ownerKept.Count) owner(s) who are also identities"
+    Expect 'Masking is repeatable'         ([TenantWise.Core.PresentationMask]::Apply($maskedJson) -eq $maskedJson) 'masking a masked report changes nothing'
+    $someone = ($people | Where-Object upn | Select-Object -First 1).upn
+    $review = [System.Text.Json.Nodes.JsonNode]::Parse((@{ comments = @{ x = "ask $someone first" }; signedOff = @{ reviewer = $someone; onBehalfOf = 'Jane Outside'; time = 't' } } | ConvertTo-Json -Depth 5))
+    $alsoMask = [System.Text.Json.Nodes.JsonNode[]]::new(1); $alsoMask[0] = $review           # (PowerShell would unroll the object in @())
+    [void][TenantWise.Core.PresentationMask]::Apply($dataJson, $alsoMask)
+    $rt = $review.ToJsonString()
+    Expect 'Saved review masked too'       ($rt.IndexOf($someone, [StringComparison]::OrdinalIgnoreCase) -lt 0 -and $rt -notmatch 'Jane Outside') $rt
+
+    Write-Host "`nNext-page links" -ForegroundColor White
+    Expect 'Same service followed'         ([TenantWise.Core.Api]::NextLink('https://graph.microsoft.com/v1.0/users?$skiptoken=X%27Y', 'https://graph.microsoft.com/v1.0') -eq 'https://graph.microsoft.com/v1.0/users?$skiptoken=X%27Y') 'link kept exactly as sent'
+    foreach ($bad in 'https://evil.example/v1.0/users', 'http://graph.microsoft.com/v1.0/users', 'https://graph.microsoft.com:8443/v1.0/users', 'https://graph.microsoft.com.evil.example/x', 'not a link') {
+        $refused = $false; try { [void][TenantWise.Core.Api]::NextLink($bad, 'https://graph.microsoft.com/v1.0') } catch { $refused = $true }
+        Expect "Refused: $($bad.Substring(0, [Math]::Min(34, $bad.Length)))" $refused 'token not sent there'
+    }
+
     Write-Host "`nWho can use TenantWise" -ForegroundColor White
     $acc = { param($step) [TenantWise.Tests.TestHost]::Access($base, $exp.twClient, $step) }
     $tw = & $acc 'read' | ConvertFrom-Json -Depth 10

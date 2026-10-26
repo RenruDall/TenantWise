@@ -650,6 +650,10 @@ const ACC = DATA.access || { principals: [], azure: [], entra: [], members: {}, 
 for (const p of ACC.principals) if (p.guest) p.home = guestHome(p);       // the partner's domain, kept when names are masked
 const UPN_ID = new Map(ACC.principals.filter(p => p.upn).map(p => [String(p.upn).toLowerCase(), p.id]));   // real sign-in names, kept in memory only
 if (PREFS.mask) maskPeople(ACC);
+if (PREFS.mask) {                            // presentation mode hides who scanned and who is signed in, too (screen and exports)
+  if (DATA.meta && DATA.meta.provenance && DATA.meta.provenance.account) DATA.meta.provenance.account = "masked account";
+  if (APP && APP.account) APP.account = "masked account";
+}
 const pById = new Map(ACC.principals.map(p => [p.id, p]));
 const memberOf = new Map();                  // principal -> groups it is (transitively) in
 for (const [g, ms] of Object.entries(ACC.members || {})) for (const m of ms || []) {
@@ -2410,7 +2414,7 @@ function reviewEvidenceHtml(pop, name, time, summary, popSha, own) {
   const D = review.decisions, label = r => ({ keep: "Keep", remove: "Remove", question: "Ask" })[D[rkey(r)]] || "";
   const t = (head, rows, cls) => `<table${cls ? ` class="${cls}"` : ""}><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   const act = pop.filter(r => D[rkey(r)] !== "keep");
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Access review — ${esc(tenantName)}</title><style>${REPORT_CSS}</style></head><body>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${REPORT_CSP}<title>Access review — ${esc(tenantName)}</title><style>${REPORT_CSS}</style></head><body>
 <h1>Access review — ${esc(tenantName)}</h1>
 <p class="meta">ISO/IEC 27001:2022 ${esc(CONTROLS.access.iso)} · SOX ITGC: ${esc(CONTROLS.access.sox)}</p>
 ${t(["", ""], [["Reviewer", name], ["Signed off", new Date(time).toLocaleString() + " (" + time + ")"], ["Result", summary],
@@ -2663,6 +2667,8 @@ function csvText(rows, all) {
   return [cols.map(c => c[0]).join(","), ...rows.map(r => cols.map(c => cell(r[c[1]])).join(","))].join("\r\n");
 }
 function saveCsv() { return saveFile(`tenantwise-access_${stamp()}.csv`, csvText(accessRegister()), "text/csv", "access-csv"); }
+// exported reports run no scripts and load nothing: even a name that slipped through escaping couldn't act
+const REPORT_CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'">`;
 const REPORT_CSS = `body{font:12px/1.45 system-ui,"Segoe UI",sans-serif;color:#1b1f24;background:#fff;margin:24px auto;padding:0 16px;max-width:1150px}
 h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:26px 0 6px;border-bottom:1px solid #ccd3db;padding-bottom:3px}h3{font-size:13px;margin:14px 0 4px}
 table{border-collapse:collapse;width:100%;margin:6px 0}th,td{border:1px solid #dde2e8;padding:3px 6px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#eef2f7}
@@ -2682,7 +2688,7 @@ async function evidenceHtml() {
   const lz = landingZoneChecks();
   let sec = 0; const h = t => `<h2>${++sec}. ${esc(t)}</h2>`;
   const D = lastDiff;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${REPORT_CSP}<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Access and governance evidence — ${esc(tenantName)}</title><style>${REPORT_CSS}</style></head><body>
 <h1>Access and governance evidence — ${esc(tenantName)}</h1>
 <p class="meta">Scan of ${esc(new Date(DATA.meta.generated).toLocaleString())} · ${esc(DATA.meta.scope || "")} · Tenant ID ${esc(DATA.meta.tenantId || "—")}<br>
@@ -2945,7 +2951,7 @@ function showOffboarding(pid) {
     <p class="toolbar"><button class="btn primary" id="ob-save" data-need="export" data-ico="save">Save checklist</button><button class="btn" id="ob-close">Close</button></p>`, true);
   $("ob-close").onclick = () => overlay("");
   $("ob-save").onclick = () => saveFile(`tenantwise-offboarding_${(m.p.upn || m.p.name).replace(/[^\w.-]+/g, "_")}_${stamp()}.html`,
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Offboarding — ${esc(m.p.name)}</title><style>${REPORT_CSS}ul.todo{list-style:none;padding:0}ul.todo li{padding:4px 0;border-bottom:1px solid #e5e9ef}.rel{display:block;color:#5d6772;font-size:11px}</style></head><body>
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">${REPORT_CSP}<title>Offboarding — ${esc(m.p.name)}</title><style>${REPORT_CSS}ul.todo{list-style:none;padding:0}ul.todo li{padding:4px 0;border-bottom:1px solid #e5e9ef}.rel{display:block;color:#5d6772;font-size:11px}</style></head><body>
     <h1>Offboarding checklist — ${esc(m.p.name)}</h1><p class="meta">${esc(m.p.upn || "")} · tenant ${esc(tenantName)} · scan of ${esc(new Date(DATA.meta.generated).toLocaleString())} · made with TenantWise (${PROJECT_URL})</p>
     <p class="note">Confidential: lists this person's access.</p>${offboardingHtml(m, true)}</body></html>`, "text/html", "offboarding");
   document.querySelectorAll("#ocard [data-ico]").forEach(el => { if (!el.querySelector("svg")) el.insertAdjacentHTML("afterbegin", ico(el.dataset.ico)); });
@@ -2999,7 +3005,7 @@ function onePagerHtml() {
   const font = $("tw-font") ? $("tw-font").textContent : "";
   const first = t => String(t).split(/(?<=\.)\s/)[0];
   const kpi = (v, l, bad) => `<div class="k${bad ? " bad" : ""}"><b>${v}</b><span>${l}</span></div>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Security summary — ${esc(tenantName)}</title><style>${font}
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${REPORT_CSP}<meta name="viewport" content="width=device-width,initial-scale=1"><title>Security summary — ${esc(tenantName)}</title><style>${font}
 :root{--ink:#16202c;--mute:#5b6878;--line:#e3e8ee;--chip:#eef2f6;--ok:#0e7a3e;--sev-med:#bc4b09;--sev-high:#c50f1f;--acc:#0f6cbd}
 *{box-sizing:border-box}body{margin:0;background:#fff;color:var(--ink);font:400 12.5px/1.5 Inter,"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .page{max-width:900px;margin:0 auto;padding:30px 36px}

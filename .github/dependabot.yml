@@ -1,0 +1,8 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: nuget
+    directories: [/src/TenantWise.App, /src/TenantWise.Core]
+    schedule: { interval: monthly }
