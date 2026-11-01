@@ -4,9 +4,9 @@
     ".NETFramework,Version=v4.8": {
       "Microsoft.Identity.Client": {
         "type": "Direct",
-        "requested": "[4.86.0, )",
-        "resolved": "4.86.0",
-        "contentHash": "ZraQwohwmUsoDDN0jukt7l/Wj6kyE1Nh3jOiQKW1DIfXEr3TpgHIxwWinnrjM/D3+4K6jObns+x3Y+EMiv1Odw==",
+        "requested": "[4.92.0, )",
+        "resolved": "4.92.0",
+        "contentHash": "mvzvyZ0pG8gODD8+76u1HfpHzHk/Df8ylLdrrJImWdbAcV0PUx41Q/S3eojIAhH9T+upRf2cxKRli9208GC3Bw==",
         "dependencies": {
           "Microsoft.IdentityModel.Abstractions": "8.14.0",
           "System.Diagnostics.DiagnosticSource": "6.0.1",
@@ -148,19 +148,6 @@
         "dependencies": {
           "System.Text.Json": "[8.0.5, )"
         }
-      }
-    },
-    ".NETFramework,Version=v4.8/win-x64": {
-      "Microsoft.Web.WebView2": {
-        "type": "Direct",
-        "requested": "[1.0.3800.47, )",
-        "resolved": "1.0.3800.47",
-        "contentHash": "vluoF9sqb72AB02yYs1UXW/2/VsxOMl2idiFJNvG993sOw3bHJvjHXmd3tqevTd9s3Md/9FgEzkOXoUl2Nb/ww=="
-      },
-      "Microsoft.Identity.Client.NativeInterop": {
-        "type": "Transitive",
-        "resolved": "0.20.6",
-        "contentHash": "noyfdMfVxyWpM6xUDmlW6gUvZ5ci24z7Qoy15JvynTQfZV5vTD2NEdsnT5Gy4ngViwgdIp5iRjRy10jAKXFAgw=="
       }
     }
   }
