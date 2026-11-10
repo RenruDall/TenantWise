@@ -524,7 +524,7 @@ for p in policies:
 # ---------- Entra (Microsoft Graph)
 G = raw["graph"]
 G["org"] = {"id": T, "displayName": "Fabrikam Demo (fictional)", "verifiedDomains": [
-    {"name": "demo.onmicrosoft.example", "isDefault": False, "isInitial": True}, {"name": "fabrikam-demo.example", "isDefault": True, "isInitial": False}]}
+    {"name": "fabrikamdemo.onmicrosoft.com", "isDefault": False, "isInitial": True}, {"name": "fabrikam-demo.example", "isDefault": True, "isInitial": False}]}
 dir_role = {r: str(uuid.UUID(int=random.getrandbits(128))) for r in sorted({a["role"] for a in entra} | {"Global Reader", "Directory Readers", "Guest Inviter"})}
 G["roleDefinitions"] = [{"id": i, "displayName": r, "isPrivileged": r in ROLES_PRIV} for r, i in dir_role.items()]
 G["roleAssignments"] = [{"id": str(k), "principalId": a["p"], "roleDefinitionId": dir_role[a["role"]], "directoryScopeId": "/"} for k, a in enumerate(entra) if a["status"] == "active"]
@@ -621,7 +621,7 @@ TEAMS = [  # name, visibility, t_owners, t_members, guests, channels [(name, typ
     ("Sales Italy", "Private", 1, 4, 1, [], 15),
     ("Old Project X", "Private", 2, 3, 0, [], 400)]
 G["teams"], G["groupMembersM365"], G["teamChannels"], G["channelMembers"], csv_rows, exp_teams, exp_sites = [], {}, {}, {}, [], [], []
-TENANT_SP = "https://demo.sharepoint.example"
+TENANT_SP = "https://fabrikamdemo.sharepoint.com"
 def report_row(site_id, url, owner, owner_upn, template, days, deleted=False):
     return [NOW(-1)[:10], site_id, url, owner, "True" if deleted else "False", NOW(-days)[:10], "", "True", "Allow", "EUR",
             str(m365_rng.randint(5, 4000)), "1", "10", "3", str(m365_rng.choice([0, 0, 2])), "1", "0", "4", str(m365_rng.randint(10**6, 10**10)), "27487790694400", template, owner_upn, "30"]
